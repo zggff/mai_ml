@@ -137,13 +137,14 @@ x               # type: ignore
 # %%
 # Load dataset here
 import pandas as pd  # noqa: E402
-data = pd.read_csv("./data.csv")
-
+df = pd.read_csv("./data.csv")
 
 # %% [md]
 # 1. Узнайте сколько было на борту человек
 
 # %%
+
+len(df)
 
 
 # %% [md]
@@ -151,11 +152,21 @@ data = pd.read_csv("./data.csv")
 
 # %%
 
+print(df["Age"].median())
+print(df["Age"].mean())
+
 
 # %% [md]
 # 3. Посчитайте процент выживаемости детей(до 16 лет) и взрослых
 
 # %%
+
+ch = df[df["Age"] <= 16]
+ad = df[df["Age"] > 16]
+chs = ch[ch["Survived"] == 1]
+ads = ad[ad["Survived"] == 1]
+print(f"children: {len(chs)/len(ch) * 100}%")
+print(f"adults:   {len(ads)/len(ad) * 100}%")
 
 
 # %% [md]
@@ -163,18 +174,29 @@ data = pd.read_csv("./data.csv")
 # первыми и выживали больше?
 
 # %%
+mask = (df["Age"] <= 16) | (df["Sex"] == 'female')
+fc = df[mask]
+mo = df[~mask]
+print(f"woman and children: {len(fc[fc['Survived'] == 1]) / len(fc) * 100}%")
+print(f"adult males:        {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 
 
 # %% [md]
 # 5. Зависит ли выживаемость от класса обслуживания?
 
 # %%
+for cl in sorted(df['Pclass'].unique()):
+    dfcl = df[df['Pclass'] == cl]
+    print(f"{cl}: {len(dfcl[dfcl['Survived'] == 1]) / len(dfcl) * 100}%")
 
 
 # %% [md]
 # 6. Посчитайте средний возраст умерших женщин и мужчин
 
 # %%
+female = df[(df["Sex"] == 'female') & (df['Survived'] == 0)]['Age'].mean()
+male = df[(df["Sex"] == 'male') & (df['Survived'] == 0)]['Age'].mean()
+print(f"female = {female}, male = {male}")
 
 
 # %% [md]
@@ -182,12 +204,18 @@ data = pd.read_csv("./data.csv")
 # одним родственником на борту и одиночек?
 
 # %%
+rel = df[(df["SibSp"] > 0) | (df["Parch"] > 0)]
+lon = df[(df["SibSp"] == 0) & (df["Parch"] == 0)]
+print(f"with:    {len(rel[rel['Survived'] == 0])/len(rel)*100}%")
+print(f"without: {len(lon[lon['Survived'] == 0])/len(lon)*100}%")
 
 
 # %% [md]
 # 8. Различается ли средняя стоимость билета у умерших и выживших пассажиров?
 
 # %%
+print(f"dead:  {df[df['Survived'] == 0]['Fare'].mean()}")
+print(f"alive: {df[df['Survived'] == 1]['Fare'].mean()}")
 
 
 # %% [md]
@@ -195,6 +223,8 @@ data = pd.read_csv("./data.csv")
 # пассажиров во 2 классе обслуживания
 
 # %%
+cl2 = df[df["Pclass"] == 2]["Age"]
+print(f"max = {cl2.max()}, min = {cl2.min()}")
 
 
 # %% [md]
@@ -203,6 +233,11 @@ data = pd.read_csv("./data.csv")
 
 # %%
 
+mo = df[df["Sex"] == "male"]
+my = mo[mo["Age"] <= 18]
+mo = mo[mo["Age"] > 18]
+print(f"young: {len(my[my['Survived'] == 1]) / len(my) * 100}%")
+print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 
 # %% [md]
 # ### 3. Визуализация

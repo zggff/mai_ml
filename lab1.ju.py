@@ -356,3 +356,44 @@ plt.show()
 # \* Задание на доп. балл
 
 # %%
+
+vars = [
+    df[(df["Pclass"] == 1)],
+    df[(df["Pclass"] == 2)],
+    df[(df["Pclass"] == 3)],
+]
+
+fig = plt.figure(figsize=(10, 10), linewidth=10)
+rect = (0.1, 0.1, 0.9, 0.9)
+
+ax.grid(False)
+ax.tick_params(axis='both', left=False, bottom=False,
+               labelbottom=False, labelleft=True)
+ax = fig.add_axes(rect, polar=True, frameon=False)
+ax.grid(False, axis="y")
+ax.set_theta_direction(1)
+ax.set_theta_zero_location('N')
+ax.set_xticks(1.5*np.pi*np.linspace(0, 1, 11),
+              labels=[f"{int(i * 100)}%" for i in np.linspace(0, 1, 11)])
+
+ax.set_rgrids(range(9),
+              labels=[f"  {i // 3 + 1} класс"
+              if (i % 3) == 1 else "" for i in range(9)],
+              angle=0,
+              fontsize=14, fontweight='bold',
+              color='black', verticalalignment='center')
+
+for i, v in enumerate(vars):
+    ax.barh(i*3, 1*1.5*np.pi, color="gray")
+    ax.barh(i*3+1, 1*1.5*np.pi, color="gray")
+    m = v[v["Sex"] == "male"]
+    f = v[v["Sex"] == "female"]
+    mp = len(m[m["Survived"] == 1])/len(m)
+    fp = len(f[f["Survived"] == 1])/len(f)
+    ax.barh(i*3, mp*1.5*np.pi, color="blue", label="male")
+    ax.barh(i*3+1, fp*1.5*np.pi, color="cyan", label="female")
+handles, labels = plt.gca().get_legend_handles_labels()
+labels, ids = np.unique(labels, return_index=True)
+handles = [handles[i] for i in ids]
+plt.legend(handles, labels, loc="upper right", fontsize="xx-large")
+plt.show()

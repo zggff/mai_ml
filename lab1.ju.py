@@ -345,6 +345,12 @@ plt.show()
 
 # %%
 
+df2 = pd.DataFrame({
+    "alive": df[df["Survived"] == 1]["Age"],
+    "dead": df[df["Survived"] == 0]["Age"]
+})
+df2.plot.kde(ind=np.linspace(0, np.ceil(df["Age"].max()), 100))
+
 
 # %% [md]
 # 7. Постройте круговую диаграмму отображающую выживаемость мужчин и

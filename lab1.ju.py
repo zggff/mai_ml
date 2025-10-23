@@ -11,7 +11,9 @@
 # %%
 import numpy as np
 from numpy.typing import NDArray
-
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # %% [md]
 # 1. Создайте единичную матрицу размером 3х3
@@ -136,7 +138,6 @@ x               # type: ignore
 
 # %%
 # Load dataset here
-import pandas as pd  # noqa: E402
 df = pd.read_csv("./data.csv")
 
 # %% [md]
@@ -194,9 +195,9 @@ for cl in sorted(df['Pclass'].unique()):
 # 6. Посчитайте средний возраст умерших женщин и мужчин
 
 # %%
-female = df[(df["Sex"] == 'female') & (df['Survived'] == 0)]['Age'].mean()
+fema = df[(df["Sex"] == 'female') & (df['Survived'] == 0)]['Age'].mean()
 male = df[(df["Sex"] == 'male') & (df['Survived'] == 0)]['Age'].mean()
-print(f"female = {female}, male = {male}")
+print(f"female = {fema}, male = {male}")
 
 
 # %% [md]
@@ -233,9 +234,10 @@ print(f"max = {cl2.max()}, min = {cl2.min()}")
 
 # %%
 
+old_age_start = 30
 mo = df[df["Sex"] == "male"]
-my = mo[mo["Age"] <= 18]
-mo = mo[mo["Age"] > 18]
+my = mo[(mo["Age"] >= 18) & (mo["Age"] < old_age_start)]
+mo = mo[mo["Age"] >= old_age_start]
 print(f"young: {len(my[my['Survived'] == 1]) / len(my) * 100}%")
 print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 
@@ -250,12 +252,27 @@ print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 # 1. Постройте гистограмму распределения возростов пассажиров
 
 # %%
+df["Age"].plot.hist()
 
 
 # %% [md]
 # 2. Постройте гистограммы распределения цен для пассажиров разных классов
 
 # %%
+
+df2 = pd.DataFrame(
+    {
+        "1 class": df[df["Pclass"] == 1]["Fare"],
+        "2 class": df[df["Pclass"] == 2]["Fare"],
+        "3 class": df[df["Pclass"] == 3]["Fare"],
+    }
+)
+
+# %%
+
+
+sns.histplot(df2.melt(), x="value", hue="variable", multiple="dodge",
+             shrink=0.75, bins=20)
 
 
 # %% [md]
@@ -264,11 +281,20 @@ print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 # %%
 
 
+fig, ax = plt.subplots()
+plt.plot(df["Age"], df["Fare"], "o", ms=3)
+ax.xaxis.set_ticks(np.arange(0, df["Age"].max() + 1, 5))
+plt.grid()
+plt.show()
+
+
 # %% [md]
 # 4. Постройте box plot отображающий распределение цен на билеты
 # в разных классах
 
 # %%
+
+df2.plot.box(title="Age box diagram", ylabel="fare")
 
 
 # %% [md]
@@ -276,6 +302,41 @@ print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 # женщин и детей(до 16 лет)
 
 # %%
+vars = [
+    df[(df["Sex"] == "male") & (df["Age"] > 16)],
+    df[(df["Sex"] == "female") & (df["Age"] > 16)],
+    df[(df["Age"] <= 16)]
+]
+labels = ["male", "female", "children"]
+
+fig = plt.figure(figsize=(10, 10), linewidth=10)
+rect = (0.1, 0.1, 0.9, 0.9)
+
+ax.grid(False)
+ax.tick_params(axis='both', left=False, bottom=False,
+               labelbottom=False, labelleft=True)
+ax = fig.add_axes(rect, polar=True, frameon=False)
+ax.grid(False, axis="y")
+ax.set_theta_direction(1)
+ax.set_theta_zero_location('N')
+ax.set_xticks(1.5*np.pi*np.linspace(0, 1, 11),
+              labels=[f"{int(i * 100)}%" for i in np.linspace(0, 1, 11)])
+
+
+ax.set_rgrids(range(len(vars)),
+              labels=[f"  {i}" for i in labels],
+              angle=0,
+              fontsize=14, fontweight='bold',
+              color='black', verticalalignment='center')
+
+#
+
+for i, v in enumerate(vars):
+    ax.barh(i, 1*1.5*np.pi, color="gray")
+    t = len(v[v["Survived"] == 1])/len(v)
+    pos = t*1.5*np.pi
+    ax.barh(i, pos)
+plt.show()
 
 
 # %% [md]

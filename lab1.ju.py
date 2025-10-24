@@ -232,6 +232,7 @@ print(f"without: {len(lon[lon['Survived'] == 0])/len(lon)*100}%")
 print(f"dead:  {df[df['Survived'] == 0]['Fare'].mean()}")
 print(f"alive: {df[df['Survived'] == 1]['Fare'].mean()}")
 
+# %% [md]
 # Различается, пассажиры с более высокой ценой билета имели больший шанс выжить
 
 # %% [md]
@@ -324,7 +325,7 @@ vars = [
 ]
 labels = ["male", "female", "children"]
 
-fig = plt.figure(figsize=(10, 10), linewidth=10)
+fig = plt.figure()
 rect = (0.1, 0.1, 0.9, 0.9)
 
 ax.grid(False)
@@ -393,7 +394,7 @@ vars = [
     df[(df["Pclass"] == 3)],
 ]
 
-fig = plt.figure(figsize=(10, 10), linewidth=10)
+fig = plt.figure()
 rect = (0.1, 0.1, 0.9, 0.9)
 
 ax.grid(False)
@@ -425,5 +426,5 @@ for i, v in enumerate(vars):
 handles, labels = plt.gca().get_legend_handles_labels()
 labels, ids = np.unique(labels, return_index=True)
 handles = [handles[i] for i in ids]
-plt.legend(handles, labels, loc="upper right", fontsize="xx-large")
+plt.legend(handles, labels, loc="lower right")
 plt.show()

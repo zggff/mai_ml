@@ -84,6 +84,7 @@ np.mgrid[0:1.01:0.01, 0:1.01:0.01].reshape(2, -1).T
 x = np.random.normal(size=(5))
 y = np.random.normal(size=(5))
 
+print(x, y)
 c = np.fromfunction(lambda i, j: 1/(x[i] + y[j]), shape=(5, 5), dtype=int)
 c                   # type: ignore
 
@@ -91,10 +92,16 @@ c                   # type: ignore
 # 9. Как конвертировать массив float(32 bit) к массиву целых чисел
 # (integer 32 bit) in place?
 
-# %%
-x = np.random.normal(scale=10, size=(1, 10))
-x = x.astype(int)
+# %% convert values to type
+x = np.random.normal(scale=10, size=(1, 5))
+x = x.astype(int)   # this converts values, result is the original rounded
 x                   # type: ignore
+
+# %% in place
+x = np.random.normal(scale=10, size=(1, 5))
+x = x.view(int)     # this converts types
+x                   # type: ignore
+
 
 # %% [md]
 # 10. Как случайно заменить p элементов в 2D массиве?
@@ -153,8 +160,8 @@ len(df)
 
 # %%
 
-print(df["Age"].median())
-print(df["Age"].mean())
+print("медианный =", df["Age"].median())
+print("средний =  ", df["Age"].mean())
 
 
 # %% [md]
@@ -181,6 +188,8 @@ mo = df[~mask]
 print(f"woman and children: {len(fc[fc['Survived'] == 1]) / len(fc) * 100}%")
 print(f"adult males:        {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
 
+# %% [md]
+# Гипотеза верна
 
 # %% [md]
 # 5. Зависит ли выживаемость от класса обслуживания?
@@ -190,6 +199,8 @@ for cl in sorted(df['Pclass'].unique()):
     dfcl = df[df['Pclass'] == cl]
     print(f"{cl}: {len(dfcl[dfcl['Survived'] == 1]) / len(dfcl) * 100}%")
 
+# %% [md]
+# Да, зависит
 
 # %% [md]
 # 6. Посчитайте средний возраст умерших женщин и мужчин
@@ -210,6 +221,9 @@ lon = df[(df["SibSp"] == 0) & (df["Parch"] == 0)]
 print(f"with:    {len(rel[rel['Survived'] == 0])/len(rel)*100}%")
 print(f"without: {len(lon[lon['Survived'] == 0])/len(lon)*100}%")
 
+# %% [md]
+# Различаются. Люди с родственниками имели меньший шанс выживания
+
 
 # %% [md]
 # 8. Различается ли средняя стоимость билета у умерших и выживших пассажиров?
@@ -218,6 +232,7 @@ print(f"without: {len(lon[lon['Survived'] == 0])/len(lon)*100}%")
 print(f"dead:  {df[df['Survived'] == 0]['Fare'].mean()}")
 print(f"alive: {df[df['Survived'] == 1]['Fare'].mean()}")
 
+# Различается, пассажиры с более высокой ценой билета имели больший шанс выжить
 
 # %% [md]
 # 9. Выведите максимальный и минимальный возраст выживших
@@ -240,6 +255,9 @@ my = mo[(mo["Age"] >= 18) & (mo["Age"] < old_age_start)]
 mo = mo[mo["Age"] >= old_age_start]
 print(f"young: {len(my[my['Survived'] == 1]) / len(my) * 100}%")
 print(f"old:   {len(mo[mo['Survived'] == 1]) / len(mo) * 100}%")
+
+# %% [md]
+# Гипотеза верна
 
 # %% [md]
 # ### 3. Визуализация
@@ -267,9 +285,6 @@ df2 = pd.DataFrame(
         "3 class": df[df["Pclass"] == 3]["Fare"],
     }
 )
-
-# %%
-
 
 sns.histplot(df2.melt(), x="value", hue="variable", multiple="dodge",
              shrink=0.75, bins=20)
@@ -349,7 +364,16 @@ df2 = pd.DataFrame({
     "alive": df[df["Survived"] == 1]["Age"],
     "dead": df[df["Survived"] == 0]["Age"]
 })
-df2.plot.kde(ind=np.linspace(0, np.ceil(df["Age"].max()), 100))
+df2.plot.kde(ind=np.linspace(0, np.ceil(df["Age"].max()), 100), grid=True)
+
+# %% [md]
+# Пассажиры старше 30 лет не показывают значительной зависимости между
+# возрастом и процентом выживания. Отклонения плотностей - дети до 12 лет
+# процент выживаемости детей значительно выше
+# это также можно проследить в максимальных значения графика. Так как
+# количество детей составляет большую долю выживших, количество молодых
+# взрослых составляет
+# пропорционально меньшую долю
 
 
 # %% [md]

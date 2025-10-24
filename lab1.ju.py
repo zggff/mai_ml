@@ -39,7 +39,7 @@ np.dtype([("r", np.uint8), ("g", np.uint8), ("b", np.uint8), ("a", np.uint8)])
 # 4. Создайте случайный вектор размера 10 и отсортируйте его
 
 # %%
-arr = np.random.rand(1, 10)
+arr = np.random.rand(10)
 arr.sort()
 arr                 # type:ignore
 
@@ -93,12 +93,12 @@ c                   # type: ignore
 # (integer 32 bit) in place?
 
 # %% convert values to type
-x = np.random.normal(scale=10, size=(1, 5))
+x = np.random.normal(scale=10, size=5)
 x = x.astype(int)   # this converts values, result is the original rounded
 x                   # type: ignore
 
 # %% in place
-x = np.random.normal(scale=10, size=(1, 5))
+x = np.random.normal(scale=10, size=5)
 x = x.view(int)     # this converts types
 x                   # type: ignore
 

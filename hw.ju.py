@@ -351,7 +351,33 @@ plt.show()
 # глубокое дерево.
 
 # %%
-# ╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ
+from sklearn.preprocessing import LabelEncoder
+df = pd.read_csv('./datasets/agaricus-lepiota.data')
+le = LabelEncoder()
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+df
+
+# %%
+import hw2code
+from importlib import reload
+reload(hw2code)
+
+X = df.iloc[:, 1:]
+y = df.iloc[:, 0]
+X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.3, random_state=0)
+feature_types = ['categorical'] * X.shape[1]
+X_train_vals = X_train.reset_index(drop=True).values
+X_test_vals = X_test.reset_index(drop=True).values
+y_train_vals = y_train.reset_index(drop=True).values
+y_test_vals = y_test.reset_index(drop=True).values
+
+tree = hw2code.DecisionTree(feature_types=feature_types)
+tree.fit(X_train_vals, y_train_vals)
+y_pred = tree.predict(X_test_vals)
+accuracy_score(y_test_vals, y_pred)
+
 
 
 # %% [md]

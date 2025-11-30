@@ -117,9 +117,9 @@ plt.figure(figsize=(10, 10))
 trained_models_data = []
 for i, (X, y) in enumerate(datasets):
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.33, random_state=0)
+        X, y, test_size=0.33, random_state=42)
 
-    clf = DecisionTreeClassifier(random_state=0)
+    clf = DecisionTreeClassifier(random_state=42)
     clf.fit(X_train, y_train)
 
     train_preds = clf.predict(X_train)
@@ -173,12 +173,12 @@ colors = ["lightcoral", "turquoise", "plum"]
 dataset_cnt = len(max_depths) * len(min_samples_leaf)
 for i, (X, y) in enumerate(datasets):
     X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.33, random_state=0)
+            X, y, test_size=0.33, random_state=42)
     fig = plt.figure(figsize=(10, 3 * dataset_cnt))
     fig.set_facecolor(color=colors[i])
 
     for j, (d, l) in enumerate(product(max_depths, min_samples_leaf)):
-        clf = DecisionTreeClassifier(random_state=0,max_depth=d, min_samples_leaf=l)
+        clf = DecisionTreeClassifier(random_state=42,max_depth=d, min_samples_leaf=l)
         clf.fit(X_train, y_train)
         
         train_preds = clf.predict(X_train)
@@ -363,10 +363,11 @@ import hw2code
 from importlib import reload
 reload(hw2code)
 
+# %%
 X = df.iloc[:, 1:]
 y = df.iloc[:, 0]
 X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.3, random_state=0)
+            X, y, test_size=0.3, random_state=42)
 feature_types = ['categorical'] * X.shape[1]
 X_train_vals = X_train.reset_index(drop=True).values
 X_test_vals = X_test.reset_index(drop=True).values
@@ -415,8 +416,7 @@ accuracy_score(y_test_vals, y_pred)
 # Закодируйте категориальные признаки, использовав LabelEncoder. С помощью cross_val_score (cv=10) оцените accuracy на каждом из этих наборов данных следующих алгоритмов:
 # * DecisionTree, считающий все признаки вещественными
 # * DecisionTree, считающий все признаки категориальными
-# * DecisionTree, считающий все признаки вещественными
-# + one-hot-encoding всех признаков
+# * DecisionTree, считающий все признаки вещественными + one-hot-encoding всех признаков
 # * DecisionTreeClassifier из sklearn. Запишите результат
 # в pd.DataFrame (по строкам — наборы данных, по
 # столбцам — алгоритмы).
@@ -433,7 +433,75 @@ accuracy_score(y_test_vals, y_pred)
 # матрицами (что тоже, в целом, не очень сложно).
 
 # %%
-# ╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ
+datasets = []
+
+le = LabelEncoder()
+df = pd.read_csv("./datasets/agaricus-lepiota.data")
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+X = df.iloc[:, 1:]
+y = df.iloc[:, 0]
+datasets.append((X, y, "mushrooms"))
+
+df = pd.read_csv("./datasets/tic-tac-toe-endgame.csv")
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+X = df.iloc[:, :9]
+y = df.iloc[:, 9]
+datasets.append((X, y, "tic-tac-toe"))
+
+df = pd.read_csv("./datasets/car.data")
+mapping = {"unacc": 0, "acc": 0, "good": 1, "vgood": 1}
+df.iloc[:, 6] = df.iloc[:, 6].apply(lambda x: mapping[x])
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+X = df.iloc[:, :6]
+y = df.iloc[:, 6]
+datasets.append((X, y, "car"))
+
+df = pd.read_csv("./datasets/nursery.data")
+mapping = {"not_recom": 0, "recommend": 0, "very_recom": 1, "priority": 1, "spec_prior": 1}
+df.iloc[:, 8] = df.iloc[:, 8].apply(lambda x: mapping[x])
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+X = df.iloc[:, :8]
+y = df.iloc[:, 8]
+datasets.append((X, y, "nursery"))
+
+# %%
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import make_scorer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.tree import DecisionTreeClassifier
+
+scorer = make_scorer(accuracy_score)
+
+for X, y, name in datasets:
+    X_vals = X.reset_index(drop=True).values
+    y_vals = y.reset_index(drop=True).values
+
+    feature_real = ['real'] * X_vals.shape[1]
+    tree_real = hw2code.DecisionTree(feature_types=feature_real)
+    scores_real = cross_val_score(tree_real, X_vals, y_vals, cv=10, scoring=scorer)
+
+    feature_cat = ['categorical'] * X_vals.shape[1]
+    tree_cat = hw2code.DecisionTree(feature_types=feature_cat)
+    scores_cat = cross_val_score(tree_cat, X_vals, y_vals, cv=10, scoring=scorer)
+
+    ohe = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+    X_ohe = ohe.fit_transform(X_vals)
+    feature_real = ['real'] * X_ohe.shape[1]
+    tree_ohe = hw2code.DecisionTree(feature_types=feature_real)
+    scores_ohe = cross_val_score(tree_ohe, X_ohe, y_vals, cv=10, scoring=scorer)
+
+    tree_sk = DecisionTreeClassifier(random_state=42)
+    scores_sk = cross_val_score(tree_sk, X, y, cv=10, scoring=scorer)
+
+    print(f"{name}")
+    print(f"\treal:            {scores_real.mean():.4f}")
+    print(f"\tcategorical:     {scores_cat.mean():.4f}")
+    print(f"\tone hot encoder: {scores_ohe.mean():.4f}")
+    print(f"\tsklearn tree:    {scores_sk.mean():.4f}")
 
 
 # %% [md]
@@ -448,7 +516,10 @@ accuracy_score(y_test_vals, y_pred)
 # Можно ли повлиять на нее и улушить работу алгоритмов?
 
 # %% [md]
-# **Ответ:**
+# **Ответ:** Алгоритмы ранжируются по разному для разных наборов данных. DecisionTree хорошо работает для всех наборов, кроме tic-tac-toe, в котором собственная версия алгоритма показывает низкий результат: 0.46 для вещественного и 0.54 для категориального. При этом DecisionTreeClassifier из sklearn также показывает низкий результат 0.77
+# в сравнении с другими наборами, где он всегда больше 0.94. Это показывает, что
+# датасет tic-tac-toe плохо подходит для обработки деревом решений.
+# дерево решений принимающее все значения как вещественные работает хуже чем если принимать все значения как качественные. Этого следовало ожидать, так как используемые алгоритмы расчитаны на категориальные данные.
 
 # %% [md]
 # Вставьте что угодно, описывающее ваши впечатления от этого задания:

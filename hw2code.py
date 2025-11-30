@@ -78,7 +78,16 @@ class DecisionTree:
         self._min_samples_split = min_samples_split
         self._min_samples_leaf = min_samples_leaf
 
-    def _fit_node(self, sub_X, sub_y, node):
+    def _fit_node(self, sub_X, sub_y, node, depth=0):
+        if self._max_depth is not None and depth >= self._max_depth:
+            node["type"] = "terminal"
+            node["class"] = Counter(sub_y).most_common(1)[0][0]
+            return
+
+        if self._min_samples_split is not None and len(sub_y) < self._min_samples_split:
+            node["type"] = "terminal"
+            node["class"] = Counter(sub_y).most_common(1)[0][0]
+            return
         if np.all(sub_y == sub_y[0]):
             node["type"] = "terminal"
             node["class"] = sub_y[0]
@@ -109,6 +118,11 @@ class DecisionTree:
                 feature_best = feature
                 gini_best = gini
                 split = feature_vector < threshold
+                left_count = np.sum(split)
+                right_count = len(sub_y) - left_count
+                if self._min_samples_leaf is not None:
+                    if left_count < self._min_samples_leaf or right_count < self._min_samples_leaf:
+                        continue
 
                 if feature_type == "real":
                     threshold_best = threshold
@@ -133,8 +147,8 @@ class DecisionTree:
         else:
             raise ValueError
         node["left_child"], node["right_child"] = {}, {}
-        self._fit_node(sub_X[split], sub_y[split], node["left_child"])
-        self._fit_node(sub_X[np.logical_not(split)], sub_y[np.logical_not(split)], node["right_child"])
+        self._fit_node(sub_X[split], sub_y[split], node["left_child"], depth+1)
+        self._fit_node(sub_X[np.logical_not(split)], sub_y[np.logical_not(split)], node["right_child"],depth+1)
 
     def _predict_node(self, x, node):
         if node["type"] == "terminal":
@@ -168,3 +182,11 @@ class DecisionTree:
         for x in X:
             predicted.append(self._predict_node(x, self._tree))
         return np.array(predicted)
+
+    def get_params(self, deep=True):
+        return {
+            'feature_types': self._feature_types,
+            'max_depth': self._max_depth,
+            'min_samples_split': self._min_samples_split,
+            'min_samples_leaf': self._min_samples_leaf
+        }

@@ -115,14 +115,15 @@ class DecisionTree:
 
             _, _, threshold, gini = find_best_split(feature_vector, sub_y)
             if gini is not None and (gini_best is None or gini > gini_best):
-                feature_best = feature
-                gini_best = gini
-                split = feature_vector < threshold
-                left_count = np.sum(split)
+                split_maybe = feature_vector < threshold
+                left_count = np.sum(split_maybe)
                 right_count = len(sub_y) - left_count
                 if self._min_samples_leaf is not None:
                     if left_count < self._min_samples_leaf or right_count < self._min_samples_leaf:
                         continue
+                split = split_maybe
+                feature_best = feature
+                gini_best = gini
 
                 if feature_type == "real":
                     threshold_best = threshold

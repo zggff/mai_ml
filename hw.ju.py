@@ -391,6 +391,49 @@ accuracy_score(y_test_vals, y_pred)
 # параметров для набора данных tic-tac-toe (см. следующий
 # пункт).
 
+# %%
+df = pd.read_csv("./datasets/tic-tac-toe-endgame.csv")
+for col in df.columns:
+    df[col] = le.fit_transform(df[col])
+X = df.iloc[:, :9]
+y = df.iloc[:, 9]
+X_vals = X.reset_index(drop=True).values
+y_vals = y.reset_index(drop=True).values
+
+max_depths = np.linspace(1, 20, 20)
+min_samples_leaf = np.linspace(1, 40, 20)
+min_samples_split = np.linspace(2, 40, 20)
+
+X_train, X_test, y_train, y_test = train_test_split(
+        X_vals, y_vals, test_size=0.3, random_state=42)
+feature_types = ['categorical'] * X.shape[1]
+
+
+def train_with_data(max_depth, min_samples_leaf, min_samples_split):
+    tree = hw2code.DecisionTree(feature_types=feature_types, 
+                                max_depth=max_depth, 
+                                min_samples_leaf=min_samples_leaf, 
+                                min_samples_split=min_samples_split)
+    tree.fit(X_train, y_train)
+    y_pred = tree.predict(X_test)
+    return accuracy_score(y_test, y_pred)
+
+plt.figure(figsize=(10, 20))
+
+plt.subplot(3, 1, 1)
+plt.plot(max_depths, [train_with_data(a, None, None) for a in max_depths])
+plt.title("max_depths")
+
+plt.subplot(3, 1, 2)
+plt.plot(min_samples_leaf, [train_with_data(None, a, None) for a in min_samples_leaf])
+plt.title("min_samples_leaf")
+
+plt.subplot(3, 1, 3)
+plt.plot(min_samples_split, [train_with_data(None, None, a) for a in min_samples_split])
+plt.title("min_samples_split")
+
+
+
 # %% [md]
 # __Задание 9. (2 балла)__
 

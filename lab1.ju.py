@@ -7,14 +7,20 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
 from sklearn.feature_selection import RFE
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
 import os
 import seaborn as sns
 from scipy import stats
+import scipy
 from scipy.stats import norm, skew
+from scipy.special import inv_boxcox
+from sklearn.mixture import GaussianMixture
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
 
 
 # %% [md]
@@ -46,47 +52,52 @@ numerical = X.select_dtypes(include=[np.number]).columns
 le_dict = {}
 
 
-def preprocess(df: pd.DataFrame) -> pd.DataFrame:
-    res = df.drop(columns=["ApplicationDate"])
-    for col in categorical:
-        le = LabelEncoder()
-        res[col] = le.fit_transform(res[col])
-        le_dict[col] = le
-    return res
+# %%
+numerical_transformer = Pipeline(steps=[
+    ('scaler', StandardScaler())
+])
 
+categorical_transformer = Pipeline(steps=[
+    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False, drop='first'))
+])
 
-X = preprocess(X)
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', numerical_transformer, numerical),
+        ('cat', categorical_transformer, categorical)
+    ])
 
+# %%
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-model = LinearRegression()
-model.fit(X_train, y_train)
+pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('model', LinearRegression())
+])
+pipeline.fit(X_train, y_train)
 
 
 # %%
-y_pred = model.predict(X_test)
+y_pred = pipeline.predict(X_test)
 print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
 print(f"MAE  = {mean_absolute_error(y_test, y_pred)}")
 print(f"MAPE = {mean_absolute_percentage_error(y_test, y_pred)}")
 print(f"R^2  = {r2_score(y_test, y_pred)}")
 
 # %%
-plt.subplot()
-n = 1000
-plt.scatter(np.arange(n), y[:n], label="true")
-plt.scatter(np.arange(n), y_pred[:n], label="prediction")
+plt.hist(y_test, bins=30, alpha=0.5, label='Actual', density=True)
+plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted', density=True)
 plt.legend()
 
 # %%
 path = "./out.csv"
 X_valid = pd.read_csv("./data/test.csv")
 X_valid = X_valid.drop(columns=["ID"])
-X_valid = preprocess(X_valid)
-print("prepared")
-y_valid = model.predict(X_valid)
+
+y_valid = pipeline.predict(X_valid)
 res = pd.DataFrame()
 res["ID"] = np.arange(len(y_valid))
 res["RiskScore"] = y_valid

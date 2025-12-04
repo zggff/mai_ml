@@ -50,7 +50,42 @@ X = df.drop(columns=['RiskScore'])
 categorical = X.select_dtypes(include=['object']).columns
 numerical = X.select_dtypes(include=[np.number]).columns
 le_dict = {}
+print("created X")
 
+
+# %%
+def preprocess(X: pd.DataFrame) -> pd.DataFrame:
+    X_eng = X.copy()
+
+    # Create interaction features
+    X_eng['IncomeToLoanRatio'] = X_eng['AnnualIncome'] / (X_eng['LoanAmount'] + 1)
+    X_eng['MonthlyIncomeToDebt'] = X_eng['MonthlyIncome'] / (X_eng['MonthlyDebtPayments'] + 1)
+    X_eng['CreditUtilizationToScore'] = X_eng['CreditCardUtilizationRate'] * X_eng['CreditScore']
+    X_eng['AssetToLiabilities'] = X_eng['TotalAssets'] / (X_eng['TotalLiabilities'] + 1)
+    X_eng['DebtBurden'] = X_eng['TotalDebtToIncomeRatio'] * X_eng['DebtToIncomeRatio']
+    X_eng['AgeIncomeInteraction'] = X_eng['Age'] * X_eng['AnnualIncome'] / 1000
+
+    key_numerical = ['CreditScore', 'AnnualIncome', 'LoanAmount', 'MonthlyIncome', 
+                     'DebtToIncomeRatio', 'CreditCardUtilizationRate']
+
+    for col in key_numerical:
+        if col in X_eng.columns:
+            X_eng[f'{col}_squared'] = X_eng[col] ** 2
+            X_eng[f'{col}_log'] = np.log1p(np.abs(X_eng[col]))
+
+    numerical_cols_eng = X_eng.select_dtypes(include=[np.number]).columns.tolist()
+
+    for col in numerical_cols_eng:
+        if X_eng[col].dtype in [np.float64, np.float32, np.int64, np.int32]:
+            q99 = X_eng[col].quantile(0.99)
+            if q99 > X_eng[col].median() * 10:  # Only cap if there are extreme outliers
+                X_eng[col] = np.where(X_eng[col] > q99, q99, X_eng[col])
+    return X_eng
+
+
+X_eng = preprocess(X)
+numerical_cols_eng = X_eng.select_dtypes(include=[np.number]).columns.tolist()
+print("preprocessed")
 
 # %%
 numerical_transformer = Pipeline(steps=[
@@ -63,14 +98,15 @@ categorical_transformer = Pipeline(steps=[
 
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', numerical_transformer, numerical),
+        ('num', numerical_transformer, numerical_cols_eng),
         ('cat', categorical_transformer, categorical)
     ])
+
 
 # %%
 
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X_eng, y, test_size=0.2, random_state=42
 )
 
 pipeline = Pipeline(steps=[
@@ -96,6 +132,7 @@ plt.legend()
 path = "./out.csv"
 X_valid = pd.read_csv("./data/test.csv")
 X_valid = X_valid.drop(columns=["ID"])
+X_valid = preprocess(X_valid)
 
 y_valid = pipeline.predict(X_valid)
 res = pd.DataFrame()

@@ -24,6 +24,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import PolynomialFeatures
 
 pd.options.display.max_columns = None
+epsilon = 1e-6
 
 
 # %% [md]
@@ -46,13 +47,7 @@ df.head()  # pyright: ignore[reportUnusedExpression]
 def preprocess(X_in: pd.DataFrame) -> pd.DataFrame:
     X = X_in.copy()
     
-    # X["ApplicationDate"] = pd.to_datetime(X['ApplicationDate'])
-    # X["ApplicationDay"] = X["ApplicationDate"].dt.day
-    # X["ApplicationMonth"] = X["ApplicationDate"].dt.month
-    # X["ApplicationYear"] = X["ApplicationDate"].dt.year
-
-    X = X.drop(columns=["ApplicationDate"])
-    # X.drop(columns=["AnnualIncome"], inplace=True)
+    X = X.drop(columns=["ApplicationDate", "AnnualIncome"])
     categorical = X.select_dtypes(include=['object']).columns
     numerical = X.select_dtypes(include=[np.number]).columns
 
@@ -71,27 +66,25 @@ def preprocess(X_in: pd.DataFrame) -> pd.DataFrame:
 
 
 
-    X['Income_to_Loan'] = X['AnnualIncome'] / (X['LoanAmount'] + 1)
-    X['Income_Debt_Ratio'] = X['MonthlyIncome'] / (X['MonthlyDebtPayments'] + 1)
-    X['Assets_Liabilities_Ratio'] = X['TotalAssets'] / (X['TotalLiabilities'] + 1)
-    X['NetWorth_Income'] = X['NetWorth'] / (X['AnnualIncome'] + 1)
+    X['Income_to_Loan'] = X['MonthlyIncome'] / (X['LoanAmount'] + epsilon)
+    X['Income_Debt_Ratio'] = X['MonthlyIncome'] / (X['MonthlyDebtPayments'] + epsilon)
+    X['Assets_Liabilities_Ratio'] = X['TotalAssets'] / (X['TotalLiabilities'] + epsilon)
+    X['NetWorth_Income'] = X['NetWorth'] / (X['MonthlyIncome'] + epsilon)
     X['Savings_Checking'] = X['SavingsAccountBalance'] + X['CheckingAccountBalance']
-    X['Payment_Income_Ratio'] = X['MonthlyLoanPayment'] / (X['MonthlyIncome'] + 1)
-    X['MonthlyIncome_Loan_Ratio'] = X['MonthlyIncome'] / (X['LoanAmount'] + 1)
-    X['Assets_Income_Ratio'] = X['TotalAssets'] / (X['AnnualIncome'] + 1)
-    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + 1)
-    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + 1)
-    X['Debt_Loan_Ratio'] = X['MonthlyDebtPayments'] / (X['LoanAmount'] + 1)
-    X['Savings_Loan_Ratio'] = X['SavingsAccountBalance'] / (X['LoanAmount'] + 1)
-    X['Checking_Income_Ratio'] = X['CheckingAccountBalance'] / (X['MonthlyIncome'] + 1)
-    X['Liabilities_Income_Ratio'] = X['TotalLiabilities'] / (X['MonthlyIncome'] + 1)
-    X['Income_sqrt'] = np.sqrt(X['AnnualIncome'])
+    X['Payment_Income_Ratio'] = X['MonthlyLoanPayment'] / (X['MonthlyIncome'] + epsilon)
+    X['MonthlyIncome_Loan_Ratio'] = X['MonthlyIncome'] / (X['LoanAmount'] + epsilon)
+    X['Assets_Income_Ratio'] = X['TotalAssets'] / (X['MonthlyIncome'] + epsilon)
+    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + epsilon)
+    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + epsilon)
+    X['Debt_Loan_Ratio'] = X['MonthlyDebtPayments'] / (X['LoanAmount'] + epsilon)
+    X['Savings_Loan_Ratio'] = X['SavingsAccountBalance'] / (X['LoanAmount'] + epsilon)
+    X['Checking_Income_Ratio'] = X['CheckingAccountBalance'] / (X['MonthlyIncome'] + epsilon)
+    X['Liabilities_Income_Ratio'] = X['TotalLiabilities'] / (X['MonthlyIncome'] + epsilon)
+    X['Income_sqrt'] = np.sqrt(X['MonthlyIncome'])
     X['Loan_sqrt'] = np.sqrt(X['LoanAmount'])
     X['Assets_sqrt'] = np.sqrt(X['TotalAssets'])
 
-
-
-    tosquare = ['Age', 'AnnualIncome', 'CreditScore', 'LoanAmount',
+    tosquare = ['Age',  'CreditScore', 'LoanAmount',
                      'DebtToIncomeRatio', 'CreditCardUtilizationRate',
                      'MonthlyIncome', 'MonthlyDebtPayments']
 
@@ -170,15 +163,14 @@ for train_index, test_index in kf.split(X_eng, y):
     mse.append(mean_squared_error(y_test, y_pred))
 
     print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
-    # print(f"MAE  = {mean_absolute_error(y_test, y_pred)}")
-    # print(f"MAPE = {mean_absolute_percentage_error(y_test, y_pred)}")
-    # print(f"R^2  = {r2_score(y_test, y_pred)}")
-    # print()
 
 mse = np.average(mse)
 
 
 # %%
+X_train, X_test, y_train, y_test = train_test_split(X_eng, y, test_size=0.33, random_state=42)
+pipeline.fit(X_train, y_train)
+y_pred = pipeline.predict(X_test)
 plt.text(0.1, 0.1, f"MSE  = {mse}", fontsize=10, transform=plt.gca().transAxes)
 plt.hist(y_test, bins=30, alpha=0.5, label='Actual', density=True)
 plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted', density=True)

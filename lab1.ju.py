@@ -21,71 +21,121 @@ from sklearn.mixture import GaussianMixture
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import PolynomialFeatures
+
+pd.options.display.max_columns = None
 
 
 # %% [md]
 # Преобразуем dataframe, убираем nan, убираем некорректные значения
 # %%
 df: pd.DataFrame = pd.read_csv("./data/train.csv")
-df = df.dropna()
+df = df[~df['RiskScore'].isna()]
 df = cast(pd.DataFrame, df[df['RiskScore'].abs() < 200])
-df["ApplicationDate"] = pd.to_datetime(df['ApplicationDate'])
-df.sort_values(by="RiskScore")  # pyright: ignore[reportUnusedExpression]
+df.head()  # pyright: ignore[reportUnusedExpression]
 
 
 # %%
-plt.figure(figsize=[10, df.shape[1] * 5])
-for i, column in enumerate(df.columns):
-    if column == "RiskScore":
-        continue
-    plt.subplot(round(df.shape[1] / 2), 2, i + 1)
-    plt.scatter(df[column], df["RiskScore"])
-    plt.title(column)
+# numerical_data = df[df.select_dtypes(include=np.number).columns]
+# plt.figure(figsize=(10, 8))
+# sns.heatmap(numerical_data.corr(), annot=False, cmap='viridis')
 
 
 
 # %%
+def preprocess(X_in: pd.DataFrame) -> pd.DataFrame:
+    X = X_in.copy()
+    
+    # X["ApplicationDate"] = pd.to_datetime(X['ApplicationDate'])
+    # X["ApplicationDay"] = X["ApplicationDate"].dt.day
+    # X["ApplicationMonth"] = X["ApplicationDate"].dt.month
+    # X["ApplicationYear"] = X["ApplicationDate"].dt.year
+
+    X = X.drop(columns=["ApplicationDate"])
+    # X.drop(columns=["AnnualIncome"], inplace=True)
+    categorical = X.select_dtypes(include=['object']).columns
+    numerical = X.select_dtypes(include=[np.number]).columns
+
+
+    for col in numerical:
+        if X[col].isnull().sum() == 0:
+            continue
+        median_val = X[col].median()
+        X[col].fillna(median_val, inplace=True)
+
+    for col in categorical:
+        if X[col].isnull().sum() == 0:
+            continue
+        mode_val = X[col].mode()[0]
+        X[col].fillna(mode_val, inplace=True)
+
+
+
+    X['Income_to_Loan'] = X['AnnualIncome'] / (X['LoanAmount'] + 1)
+    X['Income_Debt_Ratio'] = X['MonthlyIncome'] / (X['MonthlyDebtPayments'] + 1)
+    X['Assets_Liabilities_Ratio'] = X['TotalAssets'] / (X['TotalLiabilities'] + 1)
+    X['NetWorth_Income'] = X['NetWorth'] / (X['AnnualIncome'] + 1)
+    X['Savings_Checking'] = X['SavingsAccountBalance'] + X['CheckingAccountBalance']
+    X['Payment_Income_Ratio'] = X['MonthlyLoanPayment'] / (X['MonthlyIncome'] + 1)
+    X['MonthlyIncome_Loan_Ratio'] = X['MonthlyIncome'] / (X['LoanAmount'] + 1)
+    X['Assets_Income_Ratio'] = X['TotalAssets'] / (X['AnnualIncome'] + 1)
+    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + 1)
+    X['NetWorth_Loan_Ratio'] = X['NetWorth'] / (X['LoanAmount'] + 1)
+    X['Debt_Loan_Ratio'] = X['MonthlyDebtPayments'] / (X['LoanAmount'] + 1)
+    X['Savings_Loan_Ratio'] = X['SavingsAccountBalance'] / (X['LoanAmount'] + 1)
+    X['Checking_Income_Ratio'] = X['CheckingAccountBalance'] / (X['MonthlyIncome'] + 1)
+    X['Liabilities_Income_Ratio'] = X['TotalLiabilities'] / (X['MonthlyIncome'] + 1)
+    X['Income_sqrt'] = np.sqrt(X['AnnualIncome'])
+    X['Loan_sqrt'] = np.sqrt(X['LoanAmount'])
+    X['Assets_sqrt'] = np.sqrt(X['TotalAssets'])
+
+
+
+    tosquare = ['Age', 'AnnualIncome', 'CreditScore', 'LoanAmount',
+                     'DebtToIncomeRatio', 'CreditCardUtilizationRate',
+                     'MonthlyIncome', 'MonthlyDebtPayments']
+
+    tolog = ['CreditScore', 'DebtToIncomeRatio', 'Age', 'CreditCardUtilizationRate']
+
+    tocube = ['CreditScore', 'DebtToIncomeRatio', 'Age']
+    for col in tocube:
+        X[f'{col}_cubed'] = X[col] ** 3
+
+    for col in tolog:
+        X[f'{col}_logged'] = np.log1p(X[col])
+
+    for col in tosquare:
+        X[f'{col}_squared'] = X[col] ** 2
+
+    numerical_new = X.select_dtypes(include=[np.number]).columns.tolist()
+    numerical_new = [col for col in numerical_new if col not in numerical]
+
+    poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+
+    poly_features = poly.fit_transform(X[numerical])
+    poly_vals = pd.DataFrame(
+        poly_features,
+        columns=poly.get_feature_names_out(numerical),
+        index=X.index
+    )
+
+    X = pd.concat([X[categorical], X[numerical_new], poly_vals], axis=1)
+
+    return X
+
+
 y = df['RiskScore']
 X = df.drop(columns=['RiskScore'])
-categorical = X.select_dtypes(include=['object']).columns
-numerical = X.select_dtypes(include=[np.number]).columns
-le_dict = {}
-print("created X")
-
-
-# %%
-def preprocess(X: pd.DataFrame) -> pd.DataFrame:
-    X_eng = X.copy()
-
-    # Create interaction features
-    X_eng['IncomeToLoanRatio'] = X_eng['AnnualIncome'] / (X_eng['LoanAmount'] + 1)
-    X_eng['MonthlyIncomeToDebt'] = X_eng['MonthlyIncome'] / (X_eng['MonthlyDebtPayments'] + 1)
-    X_eng['CreditUtilizationToScore'] = X_eng['CreditCardUtilizationRate'] * X_eng['CreditScore']
-    X_eng['AssetToLiabilities'] = X_eng['TotalAssets'] / (X_eng['TotalLiabilities'] + 1)
-    X_eng['DebtBurden'] = X_eng['TotalDebtToIncomeRatio'] * X_eng['DebtToIncomeRatio']
-    X_eng['AgeIncomeInteraction'] = X_eng['Age'] * X_eng['AnnualIncome'] / 1000
-
-    key_numerical = ['CreditScore', 'AnnualIncome', 'LoanAmount', 'MonthlyIncome', 
-                     'DebtToIncomeRatio', 'CreditCardUtilizationRate']
-
-    for col in key_numerical:
-        if col in X_eng.columns:
-            X_eng[f'{col}_squared'] = X_eng[col] ** 2
-            X_eng[f'{col}_log'] = np.log1p(np.abs(X_eng[col]))
-
-    numerical_cols_eng = X_eng.select_dtypes(include=[np.number]).columns.tolist()
-
-    for col in numerical_cols_eng:
-        if X_eng[col].dtype in [np.float64, np.float32, np.int64, np.int32]:
-            q99 = X_eng[col].quantile(0.99)
-            if q99 > X_eng[col].median() * 10:  # Only cap if there are extreme outliers
-                X_eng[col] = np.where(X_eng[col] > q99, q99, X_eng[col])
-    return X_eng
-
 
 X_eng = preprocess(X)
-numerical_cols_eng = X_eng.select_dtypes(include=[np.number]).columns.tolist()
-print("preprocessed")
+categorical = X_eng.select_dtypes(include=['object']).columns
+numerical = X_eng.select_dtypes(include=[np.number]).columns
+for col in X_eng.columns:
+    cnt = X_eng[col].isna().sum()
+    if cnt > 0:
+        print(col, cnt)
+X_eng.head()
+
 
 # %%
 numerical_transformer = Pipeline(steps=[
@@ -98,37 +148,45 @@ categorical_transformer = Pipeline(steps=[
 
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', numerical_transformer, numerical_cols_eng),
+        ('num', numerical_transformer, numerical),
         ('cat', categorical_transformer, categorical)
     ])
 
-
-# %%
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_eng, y, test_size=0.2, random_state=42
-)
 
 pipeline = Pipeline(steps=[
     ('preprocessor', preprocessor),
     ('model', LinearRegression())
 ])
-pipeline.fit(X_train, y_train)
 
 
 # %%
-y_pred = pipeline.predict(X_test)
-print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
-print(f"MAE  = {mean_absolute_error(y_test, y_pred)}")
-print(f"MAPE = {mean_absolute_percentage_error(y_test, y_pred)}")
-print(f"R^2  = {r2_score(y_test, y_pred)}")
+mse = []
+
+kf = KFold(n_splits=8, shuffle=True, random_state=42)
+for train_index, test_index in kf.split(X_eng, y):
+    pipeline.fit(X_eng.iloc[train_index], y.iloc[train_index])
+    y_pred = pipeline.predict(X_eng.iloc[test_index])
+    y_test = y.iloc[test_index]
+    mse.append(mean_squared_error(y_test, y_pred))
+
+    print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
+    # print(f"MAE  = {mean_absolute_error(y_test, y_pred)}")
+    # print(f"MAPE = {mean_absolute_percentage_error(y_test, y_pred)}")
+    # print(f"R^2  = {r2_score(y_test, y_pred)}")
+    # print()
+
+mse = np.average(mse)
+
 
 # %%
+plt.text(0.1, 0.1, f"MSE  = {mse}", fontsize=10, transform=plt.gca().transAxes)
 plt.hist(y_test, bins=30, alpha=0.5, label='Actual', density=True)
 plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted', density=True)
 plt.legend()
+plt.show()
 
 # %%
+pipeline.fit(X_eng, y)
 path = "./out.csv"
 X_valid = pd.read_csv("./data/test.csv")
 X_valid = X_valid.drop(columns=["ID"])

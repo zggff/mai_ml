@@ -65,6 +65,26 @@ sns.heatmap(numerical_data.corr(), annot=False, cmap="viridis")
 # %% [md]
 # зависимости есть. Надо будет убрать
 
+# %% [md]
+# проверяем min max и z-score
+
+# %%
+dfNum = df.select_dtypes(include=np.number)
+
+def z_score_scaler(data):
+    mean = np.mean(data, axis=0)
+    std = np.std(data, axis=0)
+    return (data - mean) / (std)
+
+
+def min_max_scaler(data):
+    min_val = np.min(data, axis=0)
+    max_val = np.max(data, axis=0)
+    return (data - min_val) / (max_val - min_val)
+
+dfNum.apply(z_score_scaler).describe()
+# %%
+dfNum.apply(min_max_scaler).describe()
 
 # %%
 def preprocess(X_in: pd.DataFrame) -> pd.DataFrame:
@@ -119,6 +139,7 @@ X_eng.drop(columns=to_drop)
 to_drop
 
 
+
 # %%
 binned = ["Age", "CreditScore"]
 categorical = X.select_dtypes(include=["object"]).columns
@@ -158,7 +179,7 @@ y_bins = pd.cut(y, bins=6, labels=False)
 X_train, X_test, y_train, y_test = train_test_split(X_eng, y, test_size=0.3, random_state=42, stratify=y_bins)
 
 X_train = pipe.fit_transform(X_train, y_train)
-X_val   = pipe.transform(X_test)
+X_test   = pipe.transform(X_test)
 
 
 # %% [md]
@@ -176,7 +197,8 @@ X_val   = pipe.transform(X_test)
 # alpha_grid = np.linspace(0, 100, 20)
 # alpha_grid = np.linspace(10, 100, 100)
 # alpha_grid = np.linspace(20, 29, 40)
-alpha_grid = np.linspace(27, 28, 40)
+# alpha_grid = np.linspace(27, 28, 40)
+alpha_grid = [27.692307692307693]
 
 # alpha_grid = [28.205128205128204]
 alpha_grid
@@ -192,8 +214,8 @@ for i, alpha in enumerate(alpha_grid):
     lin = LinearRegression()
     lin.fit(X_train, y_train)
 
-    lin_pred = lin.predict(X_val)
-    rig_pred = rid.predict(X_val)
+    lin_pred = lin.predict(X_test)
+    rig_pred = rid.predict(X_test)
 
     weight = optimal_weight(y_test.values, lin_pred, rig_pred)
     diff = 0.05
@@ -215,6 +237,34 @@ for i, alpha in enumerate(alpha_grid):
     print(f"alpha  = {alpha:.4f} [{i+1:2}/{len(alpha_grid)}]: {diff}")
 
 print(f"alpha={best_alpha}, w={best_w}, mse={best_mse}")
+
+# %%
+def mse(y_true, y_pred):
+    return np.mean((y_true - y_pred) ** 2)
+
+def mae(y_true, y_pred):
+    return np.mean(np.abs(y_true - y_pred))
+
+def mape(y_true, y_pred, epsilon=1e-10):
+    return np.mean(np.abs((y_true - y_pred) / y_true + epsilon)) 
+
+def r2(y_true, y_pred):
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    if ss_tot == 0:
+        return 1.0 if ss_res == 0 else 0.0
+
+    return 1 - (ss_res / ss_tot)
+
+
+lin = LinearRegression()
+lin.fit(X_train, y_train)
+pred = lin.predict(X_test)
+print(abs(mean_squared_error(y_test, pred) - mse(y_test, pred)))
+print(abs(mean_absolute_error(y_test, pred) - mae(y_test, pred)))
+print(abs(mean_absolute_percentage_error(y_test, pred) - mape(y_test, pred)))
+print(abs(r2_score(y_test, pred) - r2(y_test, pred)))
+
 
 # %% [md]
 # решаем задачу

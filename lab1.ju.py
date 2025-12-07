@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler, RobustScaler, OrdinalEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, r2_score
 from sklearn.feature_selection import RFE
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
@@ -22,6 +22,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn import linear_model
 
 pd.options.display.max_columns = None
 epsilon = 1e-6
@@ -114,6 +115,11 @@ def preprocess(X_in: pd.DataFrame) -> pd.DataFrame:
 
     X = pd.concat([X[categorical], X[numerical_new], poly_vals], axis=1)
 
+    # corr_matrix = X.select_dtypes(include=[np.number]).corr().abs()
+    # upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    # to_drop = [column for column in upper.columns if any(upper[column] > 0.95)]
+    # X = X.drop(columns=to_drop)
+
     return X
 
 
@@ -129,27 +135,68 @@ for col in X_eng.columns:
         print(col, cnt)
 X_eng.head()
 
+# %%
+
+
 
 # %%
-numerical_transformer = Pipeline(steps=[
-    ('scaler', StandardScaler())
-])
+def create_pipeline(X):
+    categorical = X.select_dtypes(include=['object']).columns
+    numerical = X.select_dtypes(include=[np.number]).columns
+    numerical_transformer = Pipeline(steps=[
+        ('scaler', RobustScaler())
+    ])
 
-categorical_transformer = Pipeline(steps=[
-    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False, drop='first'))
-])
+    categorical_transformer = Pipeline(steps=[
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=True, drop='first'))
+    ])
 
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', numerical_transformer, numerical),
-        ('cat', categorical_transformer, categorical)
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numerical_transformer, numerical),
+            ('cat', categorical_transformer, categorical)
+        ])
+
+
+    return Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('model', linear_model.LinearRegression())
     ])
 
 
-pipeline = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('model', LinearRegression())
-])
+# %%
+
+
+cols_to_remove = []
+with open("removed.txt", "r") as f:
+    cols_to_remove = [col for col in f.read().splitlines() if len(col) > 0]
+
+X_eng = X_eng.drop(columns=cols_to_remove)
+
+pipeline = create_pipeline(X_eng)
+X_train, X_test, y_train, y_test = train_test_split(X_eng, y, test_size=0.33, random_state=42)
+pipeline.fit(X_train, y_train)
+y_pred = pipeline.predict(X_test)
+best_mse = mean_squared_error(y_test, y_pred)
+
+
+# with open("removed.txt", "w") as f:
+#     f.write("\n".join(cols_to_remove) + "\n")
+#     while best_mse > 24.5:
+#         for feature in X_eng.columns:
+#             X_copy = X_eng.drop(columns=[feature])
+#             pipeline = create_pipeline(X_copy)
+#             X_train, X_test, y_train, y_test = train_test_split(X_copy, y, test_size=0.33, random_state=42)
+#             pipeline.fit(X_train, y_train)
+#             y_pred = pipeline.predict(X_test)
+#             mse = mean_squared_error(y_test, y_pred)
+#             print(f"\tTesting {feature}")
+#             if mse < best_mse:
+#                 X_eng = X_copy
+#                 print(feature, mse, best_mse - mse)
+#                 f.writelines(f"{feature}\n")
+#                 best_mse = mse
+#                 break
 
 
 # %%
@@ -161,9 +208,9 @@ for train_index, test_index in kf.split(X_eng, y):
     y_pred = pipeline.predict(X_eng.iloc[test_index])
     y_test = y.iloc[test_index]
     mse.append(mean_squared_error(y_test, y_pred))
+    # print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
 
-    print(f"MSE  = {mean_squared_error(y_test, y_pred)}")
-
+print(mse, np.average(mse))
 mse = np.average(mse)
 
 
@@ -171,6 +218,7 @@ mse = np.average(mse)
 X_train, X_test, y_train, y_test = train_test_split(X_eng, y, test_size=0.33, random_state=42)
 pipeline.fit(X_train, y_train)
 y_pred = pipeline.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
 plt.text(0.1, 0.1, f"MSE  = {mse}", fontsize=10, transform=plt.gca().transAxes)
 plt.hist(y_test, bins=30, alpha=0.5, label='Actual', density=True)
 plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted', density=True)

@@ -378,6 +378,7 @@ pred = lin_gr.predict(X_test)
 calc_mse(y_test, pred)
 
 # %%
+# %%time
 lin_sgr = Linear()
 lin_sgr.fit(X_train, y_train, 2, n_iterations=1000)
 pred = lin_sgr.predict(X_test)

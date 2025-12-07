@@ -238,6 +238,33 @@ for i, alpha in enumerate(alpha_grid):
 
 print(f"alpha={best_alpha}, w={best_w}, mse={best_mse}")
 
+# %% [md]
+# решаем задачу
+# %%
+X_full = X_eng.copy()
+X_out = pd.read_csv("./data/test.csv")
+X_out = X_out.drop(columns="ID")
+X_out = preprocess(X_out)
+
+pipe_final = pipe
+X_full = pipe_final.fit_transform(X_full, y)
+X_out = pipe_final.transform(X_out)
+
+lin = LinearRegression()
+lin.fit(X_full, y)
+
+rig = Ridge(alpha=best_alpha)
+rig.fit(X_full, y)
+
+lin_pred = lin.predict(X_out)
+rig_pred = rig.predict(X_out)
+mix_pred = best_w * lin_pred + (1.0 - best_w) * rig_pred
+
+sub = pd.DataFrame({"ID": np.arange(len(mix_pred)), "RiskScore": mix_pred})
+sub.to_csv("out.csv", index=False)
+sub.sort_values(by="RiskScore")
+
+
 # %%
 def mse(y_true, y_pred):
     return np.mean((y_true - y_pred) ** 2)
@@ -267,27 +294,104 @@ print(abs(r2_score(y_test, pred) - r2(y_test, pred)))
 
 
 # %% [md]
-# решаем задачу
+# класс линейной регрессии
+
 # %%
-X_full = X_eng.copy()
-X_out = pd.read_csv("./data/test.csv")
-X_out = X_out.drop(columns="ID")
-X_out = preprocess(X_out)
+class Linear:
+    def _fit_analyze(self, X, y):
+        self.weights = np.linalg.inv(X.T @ X) @ X.T @ y
 
-pipe_final = pipe
-X_full = pipe_final.fit_transform(X_full, y)
-X_out = pipe_final.transform(X_out)
+    def _fit_gradient(self, X, y, learning_rate, n_iterations):
+        h, w = X.shape
+        self.weights = np.random.randn(w) * 0.01
+        for i in range(n_iterations):
+            pred = X @ self.weights
+            gradient = (2 / h) * X.T @ (pred - y)
+            self.weights -= learning_rate * gradient
+            if np.any(np.isnan(self.weights)) or np.any(np.isinf(self.weights)):
+                raise RuntimeError(f"Warning: NaN/Inf detected at iteration {i}\n" +
+                                    f"Gradient norm: {np.linalg.norm(gradient)}")
 
-lin = LinearRegression()
-lin.fit(X_full, y)
+    def _fit_stoch(self, X, y, learning_rate, n_iterations):
+        h, w = X.shape
+        self.weights = np.random.randn(w) * 0.01
+        for _ in range(n_iterations):
+            indices = np.random.permutation(h)
+            X_shuffled = X[indices]
+            y_shuffled = y[indices]
+            for i in range(h):
+                xi = X[i:i+1]
+                yi = y[i:i+1]
+                pred = xi @ self.weights
+                gradient = 2 * xi.T @ (pred - yi)
+                self.weights -= learning_rate * gradient
+                if np.any(np.isnan(self.weights)) or np.any(np.isinf(self.weights)):
+                    raise RuntimeError(f"Warning: NaN/Inf detected at iteration {i}\n" +
+                                        f"Gradient norm: {np.linalg.norm(gradient)}")
 
-rig = Ridge(alpha=best_alpha)
-rig.fit(X_full, y)
 
-lin_pred = lin.predict(X_out)
-rig_pred = rig.predict(X_out)
-mix_pred = best_w * lin_pred + (1.0 - best_w) * rig_pred
+    def fit(self, X, y, method = 0, learning_rate = 0.01, n_iterations = 1000):
+        if method == 0:
+            return self._fit_analyze(X, y)
+        if method == 1:
+            return self._fit_gradient(X, y, learning_rate, n_iterations)
+        if method == 2:
+            return self._fit_stoch(X, y, learning_rate, n_iterations)
+        raise RuntimeError(f"invalid method")
 
-sub = pd.DataFrame({"ID": np.arange(len(mix_pred)), "RiskScore": mix_pred})
-sub.to_csv("out.csv", index=False)
-sub.sort_values(by="RiskScore")
+    def predict(self, X):
+        if self.weights is None:
+            raise RuntimeError(f"not taught")
+        return X @ self.weights
+
+# %% [md]
+# проверяем работу класса
+
+# %%
+df2 = df.copy().select_dtypes(include=np.number).dropna()
+df2 = df2.apply(z_score_scaler)
+y2 = df2["RiskScore"]
+X2 = df2.drop(columns=["RiskScore"])
+
+X_train, X_test, y_train, y_test = train_test_split(X2.to_numpy(), y2.to_numpy(), test_size=0.33, random_state=42)
+
+
+# %%
+# %%time
+lin_sk = LinearRegression()
+lin_sk.fit(X_train, y_train)
+pred = lin_sk.predict(X_test)
+mse(y_test, pred)
+
+# %%
+# %%time
+lin_an = Linear()
+lin_an.fit(X_train, y_train, 0)
+pred = lin_an.predict(X_test)
+mse(y_test, pred)
+
+# %%
+# %%time
+lin_gr = Linear()
+lin_gr.fit(X_train, y_train, 1, n_iterations=10000)
+pred = lin_gr.predict(X_test)
+mse(y_test, pred)
+
+# %%
+lin_sgr = Linear()
+lin_sgr.fit(X_train, y_train, 2, n_iterations=1000)
+pred = lin_sgr.predict(X_test)
+mse(y_test, pred)
+
+# %%
+res = pd.DataFrame()
+res["fields"] = X2.columns
+res["sklearn"] = lin_sk.coef_
+res["analytical"] = lin_an.weights
+res["gradient"] = lin_gr.weights
+res["stoch"] = lin_sgr.weights
+res
+
+# %% [md]
+# аналитическая и sklearn совпадают. Спуски немного отличаются
+

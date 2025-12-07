@@ -266,16 +266,16 @@ sub.sort_values(by="RiskScore")
 
 
 # %%
-def mse(y_true, y_pred):
+def calc_mse(y_true, y_pred):
     return np.mean((y_true - y_pred) ** 2)
 
-def mae(y_true, y_pred):
+def calc_mae(y_true, y_pred):
     return np.mean(np.abs(y_true - y_pred))
 
-def mape(y_true, y_pred, epsilon=1e-10):
+def calc_mape(y_true, y_pred, epsilon=1e-10):
     return np.mean(np.abs((y_true - y_pred) / y_true + epsilon)) 
 
-def r2(y_true, y_pred):
+def calc_r2(y_true, y_pred):
     ss_res = np.sum((y_true - y_pred) ** 2)
     ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
     if ss_tot == 0:
@@ -287,10 +287,10 @@ def r2(y_true, y_pred):
 lin = LinearRegression()
 lin.fit(X_train, y_train)
 pred = lin.predict(X_test)
-print(abs(mean_squared_error(y_test, pred) - mse(y_test, pred)))
-print(abs(mean_absolute_error(y_test, pred) - mae(y_test, pred)))
-print(abs(mean_absolute_percentage_error(y_test, pred) - mape(y_test, pred)))
-print(abs(r2_score(y_test, pred) - r2(y_test, pred)))
+print(abs(mean_squared_error(y_test, pred) - calc_mse(y_test, pred)))
+print(abs(mean_absolute_error(y_test, pred) - calc_mae(y_test, pred)))
+print(abs(mean_absolute_percentage_error(y_test, pred) - calc_mape(y_test, pred)))
+print(abs(r2_score(y_test, pred) - calc_r2(y_test, pred)))
 
 
 # %% [md]
@@ -361,27 +361,27 @@ X_train, X_test, y_train, y_test = train_test_split(X2.to_numpy(), y2.to_numpy()
 lin_sk = LinearRegression()
 lin_sk.fit(X_train, y_train)
 pred = lin_sk.predict(X_test)
-mse(y_test, pred)
+calc_mse(y_test, pred)
 
 # %%
 # %%time
 lin_an = Linear()
 lin_an.fit(X_train, y_train, 0)
 pred = lin_an.predict(X_test)
-mse(y_test, pred)
+calc_mse(y_test, pred)
 
 # %%
 # %%time
 lin_gr = Linear()
 lin_gr.fit(X_train, y_train, 1, n_iterations=10000)
 pred = lin_gr.predict(X_test)
-mse(y_test, pred)
+calc_mse(y_test, pred)
 
 # %%
 lin_sgr = Linear()
 lin_sgr.fit(X_train, y_train, 2, n_iterations=1000)
 pred = lin_sgr.predict(X_test)
-mse(y_test, pred)
+calc_mse(y_test, pred)
 
 # %%
 res = pd.DataFrame()
@@ -394,4 +394,53 @@ res
 
 # %% [md]
 # аналитическая и sklearn совпадают. Спуски немного отличаются
+
+
+# %%
+def k_fold(model, X, y, k=5):
+    permutation = np.random.permutation(X.shape[0])
+    splits = np.array_split(permutation, k)
+    scores = []
+    for i in range(k):
+        test_idx = splits[i]
+        train_idx = np.concatenate([splits[j] for j in range(k) if j != i])
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        model.fit(X_train, y_train)
+        pred = model.predict(X_test)
+        scores.append(calc_mse(y_test, pred))
+    return scores
+
+def leave_one_out(model, X, y):
+    scores = []
+    for i in range(X.shape[0]):
+        X_test, y_test = X[i:i+1], y[i:i+1]
+        X_train = np.concatenate([X[:i], X[i+1:]])
+        y_train = np.concatenate([y[:i], y[i+1:]])
+        model.fit(X_train, y_train)
+        pred = model.predict(X_test)
+        scores.append(calc_mse(y_test, pred))
+    return scores
+
+# %% 
+lin_an = Linear()
+k_fold(lin_an, X2.to_numpy(), y2.to_numpy())
+
+# %% 
+lin_an = Linear()
+mse = leave_one_out(lin_an, X2.to_numpy(), y2.to_numpy())
+print("calculated")
+
+# %%
+resmse = pd.DataFrame({"mse": mse})
+resmse.describe()
+
+# %% [md]
+# при leave_one_out выявляются сильные отклонений
+# %%
+resmse2 = resmse[(resmse["mse"] < resmse["mse"].quantile(0.9)) &
+        (resmse["mse"] > resmse["mse"].quantile(0.1))
+]
+resmse2.describe()
 

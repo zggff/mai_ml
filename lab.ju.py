@@ -11,7 +11,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
-from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder
+import sklearn.metrics as metrics
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
@@ -32,6 +33,10 @@ def z_score_scaler(data):
     mean = np.mean(data, axis=0)
     std = np.std(data, axis=0)
     return (data - mean) / (std)
+
+
+def cont_to_binary(data: np.ndarray) -> np.ndarray:
+    return (data >= 0.5).astype(int)
 
 
 # %%
@@ -129,7 +134,7 @@ pipe = Pipeline(steps=[
      ])),
 ])
 
-col_all # pyright: ignore[reportUnusedExpression]
+col_all  # pyright: ignore[reportUnusedExpression]
 
 # %%
 X_train, X_test, y_train, y_test = train_test_split(X_raw[col_all],
@@ -144,22 +149,134 @@ X_train.shape
 # %%time
 model = BaggingRegressor(estimator=LinearRegression(), random_state=0)
 model.fit(X_train, y_train)
-bagger_sk_pred = model.predict(X_test)
-roc_auc_score(y_test, bagger_sk_pred)
+bag_sk_pred = model.predict(X_test)
+roc_auc_score(y_test, cont_to_binary(bag_sk_pred))
 
 # %%
 # %%time
 bag_my = MyBaggingRegressor(estimator=LinearRegression(), random_state=0)
 bag_my.fit(X_train, y_train)
-bag_my = bag_my.predict(X_test)
-roc_auc_score(y_test, bagger_sk_pred)
+bag_my_pred = bag_my.predict(X_test)
+roc_auc_score(y_test, cont_to_binary(bag_my_pred))
+
 
 # %%
-# %%time
-boost_sk = GradientBoostingRegressor()
-boost_sk.fit(X_train, y_train)
-boost_sk_pred = boost_sk.predict(X_test)
-roc_auc_score(y_test, bagger_sk_pred)
+def accuracy_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return np.sum(y_true == y_pred) / len(y_true)
+
+
+def precision_score(y_true: np.ndarray,
+                    y_pred: np.ndarray,
+                    average: str = "binary",
+                    pos_label=1) -> float | np.float32:
+    if average == "binary":
+        tp = np.sum((y_true == pos_label) & (y_pred == pos_label))
+        fp = np.sum((y_true != pos_label) & (y_pred == pos_label))
+        return 0 if tp + fp == 0 else tp / (tp + fp)
+
+    labels = np.unique(np.concatenate([y_true, y_pred]))
+    precisions = []
+    for label in labels:
+        tp = np.sum((y_true == label) & (y_pred == label))
+        fp = np.sum((y_true != label) & (y_pred == label))
+        precision = 0 if tp + fp == 0 else tp / (tp + fp)
+        precisions.append(precision)
+    if average == "macro":
+        return np.mean(precisions)
+    elif average == "weighted":
+        support = np.array([np.sum(y_true == label) for label in labels])
+        return np.average(precisions, weights=support)
+    elif average == "micro":
+        tp_t = 0
+        fp_t = 0
+        for label in labels:
+            tp_t += np.sum((y_true == label) & (y_pred == label))
+            fp_t += np.sum((y_true != label) & (y_pred == label))
+        return 0 if tp_t + fp_t == 0 else tp_t / (tp_t + fp_t)
+    else:
+        raise RuntimeError(f"invalid average: '{average}'")
+
+
+def recall_score(y_true: np.ndarray,
+                 y_pred: np.ndarray,
+                 average="binary",
+                 pos_label=1) -> float | np.float32:
+
+    if average == "binary":
+        tp = np.sum((y_true == pos_label) & (y_pred == pos_label))
+        fn = np.sum((y_true == pos_label) & (y_pred != pos_label))
+        return 0 if tp + fn == 0 else tp / (tp + fn)
+
+    labels = np.unique(np.concatenate([y_true, y_pred]))
+    recalls = []
+    for label in labels:
+        tp = np.sum((y_true == label) & (y_pred == label))
+        fn = np.sum((y_true == label) & (y_pred != label))
+        recall = 0 if tp + fn == 0 else tp / (tp + fn)
+        recalls.append(recall)
+    if average == "macro":
+        return np.mean(recalls)
+    elif average == "weighted":
+        support = np.array([np.sum(y_true == label) for label in labels])
+        return np.average(recalls, weights=support)
+    elif average == "micro":
+        tp_t = 0
+        fn_t = 0
+        for label in labels:
+            tp_t += np.sum((y_true == label) & (y_pred == label))
+            fn_t += np.sum((y_true == label) & (y_pred != label))
+        return 0 if tp_t + fn_t == 0 else tp_t / (tp_t + fn_t)
+    else:
+        raise RuntimeError(f"invalid average: '{average}'")
+
+
+def f1_score(y_true: np.ndarray,
+             y_pred: np.ndarray,
+             average="binary",
+             pos_label=1) -> float | np.float32:
+    if average == "binary" or average == "micro":
+        p = precision_score(y_true,
+                            y_pred,
+                            average=average,
+                            pos_label=pos_label)
+        r = recall_score(y_true, y_pred, average=average, pos_label=pos_label)
+        return 0 if p + r == 0 else 2 * (p * r) / (p + r)
+    else:
+        labels = np.unique(np.concatenate([y_true, y_pred]))
+        f1_scores = []
+        for label in labels:
+            f1_scores.append(
+                f1_score(y_true, y_pred, average="binary", pos_label=label))
+        if average == "macro":
+            return np.mean(f1_scores)
+        elif average == "weighted":
+            support = np.array([np.sum(y_true == label) for label in labels])
+            return np.average(f1_scores, weights=support)
+        else:
+            raise RuntimeError(f"invalid average: '{average}'")
+
+
+# %%
+
+pred_bin = cont_to_binary(bag_my_pred)
+scores = pd.DataFrame()
+scores["type"] = [
+    "accuracy_score", "precision_score", "recall_score", "f1_score"
+]
+scores["sklearn"] = [
+    metrics.accuracy_score(y_test, pred_bin),
+    metrics.precision_score(y_test, pred_bin),
+    metrics.recall_score(y_test, pred_bin),
+    metrics.f1_score(y_test, pred_bin)
+]
+y_test = cast(np.ndarray, y_test)
+scores["my"] = [
+    accuracy_score(y_test, pred_bin),
+    precision_score(y_test, pred_bin),
+    recall_score(y_test, pred_bin),
+    f1_score(y_test, pred_bin)
+]
+scores  # pyright: ignore[reportUnusedExpression]
 
 # %%
 X_fin_test = pd.read_csv("./data/test_c.csv")
@@ -172,6 +289,7 @@ X_fin_test = pipe_final.transform(X_fin_test)
 model = MyBaggingRegressor(estimator=LinearRegression(), random_state=0)
 model.fit(X_fin_train, y_raw)
 fin_pred = model.predict(X_fin_test)
+fin_pred = cont_to_binary(fin_pred)
 
 fin_out = pd.DataFrame({
     "ID": np.arange(len(fin_pred)),

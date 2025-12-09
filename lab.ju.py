@@ -512,7 +512,7 @@ pipe_final = pipe
 X_fin_train = pipe_final.fit_transform(X_raw[col_all])
 X_fin_test = pipe_final.transform(X_fin_test)
 
-model = lightgbm.LGBMClassifier(**study.best_params)
+model = MyGradientBoostingClassifier(random_state=0)
 model.fit(X_fin_train, y_raw)
 fin_pred = np.array(model.predict(X_fin_test))
 

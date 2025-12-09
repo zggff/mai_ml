@@ -156,7 +156,7 @@ X_train, X_test, y_train, y_test = train_test_split(X_raw[col_all],
                                                     y_raw,
                                                     random_state=42,
                                                     test_size=0.33)
-X_train = pipe.fit_transform(X_train, y_train)
+X_train = pipe.fit_transform(X_train)
 X_test = pipe.transform(X_test)
 X_train.shape
 

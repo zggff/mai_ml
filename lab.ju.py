@@ -7,22 +7,29 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
-from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import roc_auc_score
 import sklearn.metrics as metrics
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.base import clone
+import scipy.stats as stats
 
-from typing import Any, Tuple, cast, Literal
-from numpy import typing as npt
+import lightgbm
+import xgboost
+import catboost
+import optuna
+
+from typing import Any, Tuple, cast
 
 pd.options.display.max_columns = None
 
-# import warnings
-# warnings.filterwarnings("ignore")
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # %% [md]
 # utility functions
@@ -67,18 +74,17 @@ if False:
 
 
 # %%
-class MyBaggingRegressor:
+class MyBaggingClassifier:
 
     def __init__(self,
-                 estimator: Any = LinearRegression,
+                 estimator: Any = DecisionTreeClassifier(),
                  n_estimators: int = 10,
                  sample_size: int = 1,
                  random_state: int | None = None):
         self.est = estimator
         self.n_estimators = n_estimators
         self.sample_size = sample_size
-        if random_state is not None:
-            np.random.seed(random_state)
+        self.random_state = random_state
 
     def _prepare(self, X: np.ndarray,
                  y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -87,29 +93,39 @@ class MyBaggingRegressor:
         indices = np.random.choice(n_samples, size=size, replace=True)
         return X[indices], y[indices]
 
-    def _dupmodel(self):
-        return self.est.__class__(**self.est.get_params())
-
     def _conv(self, val: Any):
         if isinstance(val, pd.DataFrame) or isinstance(val, pd.Series):
             val = val.to_numpy()
         return val
 
     def fit(self, X: np.ndarray | Any, y: np.ndarray | Any):
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
         X, y = self._conv(X), self._conv(y)
-        self.estimators_ = []
+        self.estimators = []
         for _ in range(self.n_estimators):
             X_bs, y_bs = self._prepare(X, y)
 
-            model = self._dupmodel()
+            model: Any = clone(self.est)
             model.fit(X_bs, y_bs)
-            self.estimators_.append(model)
+            self.estimators.append(model)
 
         return self
 
     def predict(self, X: np.ndarray | Any) -> np.ndarray:
         X = self._conv(X)
-        preds = np.column_stack([est.predict(X) for est in self.estimators_])
+        preds = np.column_stack([est.predict(X) for est in self.estimators])
+        preds, _ = stats.mode(
+            preds,
+            axis=1,
+        )
+        return preds.ravel()
+
+    def predict_proba(self, X: np.ndarray | Any) -> np.ndarray:
+        X = self._conv(X)
+        preds = np.column_stack(
+            [est.predict_proba(X) for est in self.estimators])
         return preds.mean(axis=1)
 
 
@@ -147,14 +163,15 @@ X_train.shape
 
 # %%
 # %%time
-model = BaggingRegressor(estimator=LinearRegression(), random_state=0)
-model.fit(X_train, y_train)
-bag_sk_pred = model.predict(X_test)
-roc_auc_score(y_test, cont_to_binary(bag_sk_pred))
+bag_sk = BaggingClassifier(estimator=DecisionTreeClassifier(), random_state=0)
+bag_sk.fit(X_train, y_train)
+bag_sk_pred = bag_sk.predict(X_test)
+roc_auc_score(y_test, bag_sk_pred)
 
 # %%
 # %%time
-bag_my = MyBaggingRegressor(estimator=LinearRegression(), random_state=0)
+bag_my = MyBaggingClassifier(estimator=DecisionTreeClassifier(),
+                             random_state=0)
 bag_my.fit(X_train, y_train)
 bag_my_pred = bag_my.predict(X_test)
 roc_auc_score(y_test, cont_to_binary(bag_my_pred))
@@ -278,6 +295,153 @@ scores["my"] = [
 ]
 scores  # pyright: ignore[reportUnusedExpression]
 
+
+# %%
+class MyGradientBoostingClassifier:
+
+    def __init__(self,
+                 learning_rate: float = 0.1,
+                 n_estimators: int = 100,
+                 max_depth: int = 3,
+                 min_samples_leaf: int = 1,
+                 min_samples_split: int = 2,
+                 random_state: float | None = None) -> None:
+        self.learning_rate = learning_rate
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
+        self.min_samples_split = min_samples_split
+        self.random_state = random_state
+
+    def _conv(self, val: Any) -> np.ndarray:
+        if isinstance(val, pd.DataFrame) or isinstance(val, pd.Series):
+            val = val.to_numpy()
+        return val
+
+    def _sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+    def fit(self, X: np.ndarray | Any, y: np.ndarray | Any):
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
+        X, y = self._conv(X), self._conv(y)
+
+        pos_prob = np.mean(y)
+
+        self.initial_prediction = np.log(pos_prob / (1 - pos_prob))
+        self.trees = []
+
+        current_predictions = np.full(len(y), self.initial_prediction)
+
+        for _ in range(self.n_estimators):
+            current_probs = self._sigmoid(current_predictions)
+            residuals = y - current_probs
+
+            tree = DecisionTreeRegressor(
+                max_depth=self.max_depth,
+                min_samples_split=self.min_samples_split,
+                min_samples_leaf=self.min_samples_leaf,
+                random_state=self.random_state)
+            tree.fit(X, residuals)
+
+            tree_predictions = tree.predict(X)
+            current_predictions += self.learning_rate * tree_predictions
+            self.trees.append(tree)
+        return self
+
+    def predict(self, X: np.ndarray | Any) -> np.ndarray:
+        probs = self.predict_proba(X)[:, 1]
+        return (probs >= 0.5).astype(int)
+
+    def predict_proba(self, X: np.ndarray | Any) -> np.ndarray:
+        X = self._conv(X)
+        predictions = np.full(len(X), self.initial_prediction)
+
+        for tree in self.trees:
+            predictions += self.learning_rate * tree.predict(X)
+        prob_positive = self._sigmoid(predictions)
+        return np.column_stack([1 - prob_positive, prob_positive])
+
+
+# %%
+# %%time
+grad_sk = GradientBoostingClassifier(random_state=0)
+grad_sk.fit(X_train, y_train)
+grad_sk_pred = grad_sk.predict(X_test)
+roc_auc_score(y_test, grad_sk_pred)
+
+# %%
+# %%time
+grad_my = MyGradientBoostingClassifier(random_state=0)
+grad_my.fit(X_train, y_train)
+grad_my_pred = grad_my.predict(X_test)
+roc_auc_score(y_test, grad_my_pred)
+
+# %% [md]
+# сравнивание реализаций
+# %%
+comp = pd.DataFrame()
+models = [
+    ("sklearn", GradientBoostingClassifier(random_state=0)),
+    ("XGBoost", xgboost.XGBClassifier(random_state=0)),
+    ("LightGBM", lightgbm.LGBMClassifier(random_state=0, verbose=-1)),
+    ("CatBoost", catboost.CatBoostClassifier(random_state=0, verbose=0)),
+]
+comp["name"] = [
+    "ROC_ACU", "accuracy_score", "precision_score", "recall_score", "f1_score"
+]
+for name, model in models:
+    print(f"fit {name}")
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+    pred = cont_to_binary(pred)
+    comp[name] = [
+        roc_auc_score(y_test, pred),
+        metrics.accuracy_score(y_test, pred),
+        metrics.precision_score(y_test, pred),
+        metrics.recall_score(y_test, pred),
+        metrics.f1_score(y_test, pred),
+    ]
+
+comp  # pyright: ignore[reportUnusedExpression]
+
+# %% [md]
+# модели не показывают сильного различия в результате
+
+
+# %%
+def objective(trial):
+    params = {
+        "num_iterations":
+        trial.suggest_int("num_iterations", 50, 150, step=10),
+        "learning_rate":
+        trial.suggest_float("learning_rate", 0.05, 0.3),
+        "num_leaves":
+        trial.suggest_int("num_leaves", 20, 50, step=5),
+        "min_child_samples":
+        trial.suggest_int("min_child_samples", 20, 500, step=20),
+        "random_state":
+        0,
+        "verbose":
+        -1,
+    }
+
+    model = lightgbm.LGBMClassifier(**params)
+    # Используем cross-validation для оценки
+    scores = cross_val_score(model,
+                             X_raw[col_all],
+                             y_raw,
+                             cv=3,
+                             scoring='roc_auc',
+                             n_jobs=-1)
+    return scores.mean()
+
+
+study = optuna.create_study(direction='maximize')
+study.optimize(objective, n_trials=4)
+study.best_params.items()
+
 # %%
 X_fin_test = pd.read_csv("./data/test_c.csv")
 X_fin_test = X_fin_test.drop(columns="ID")
@@ -286,7 +450,7 @@ pipe_final = pipe
 X_fin_train = pipe_final.fit_transform(X_raw[col_all])
 X_fin_test = pipe_final.transform(X_fin_test)
 
-model = MyBaggingRegressor(estimator=LinearRegression(), random_state=0)
+model = MyBaggingClassifier(estimator=DecisionTreeRegressor(), random_state=0)
 model.fit(X_fin_train, y_raw)
 fin_pred = model.predict(X_fin_test)
 fin_pred = cont_to_binary(fin_pred)

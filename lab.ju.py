@@ -10,7 +10,6 @@ import seaborn as sns
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import roc_auc_score
 import sklearn.metrics as metrics
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -66,9 +65,9 @@ sns.heatmap(df_filled.select_dtypes(include=np.number).corr(),
             cmap="viridis")
 
 # %%
-if False:
+if True:
     for col in df_filled.select_dtypes(include=np.number).columns:
-        sns.histplot(x=df_filled[col])
+        sns.violinplot(y=df_filled[col], x=y_raw)
         plt.title(col)
         plt.show()
 
@@ -166,7 +165,7 @@ X_train.shape
 bag_sk = BaggingClassifier(estimator=DecisionTreeClassifier(), random_state=0)
 bag_sk.fit(X_train, y_train)
 bag_sk_pred = bag_sk.predict(X_test)
-roc_auc_score(y_test, bag_sk_pred)
+metrics.roc_auc_score(y_test, bag_sk_pred)
 
 # %%
 # %%time
@@ -174,7 +173,7 @@ bag_my = MyBaggingClassifier(estimator=DecisionTreeClassifier(),
                              random_state=0)
 bag_my.fit(X_train, y_train)
 bag_my_pred = bag_my.predict(X_test)
-roc_auc_score(y_test, cont_to_binary(bag_my_pred))
+metrics.roc_auc_score(y_test, cont_to_binary(bag_my_pred))
 
 
 # %%
@@ -273,25 +272,88 @@ def f1_score(y_true: np.ndarray,
             raise RuntimeError(f"invalid average: '{average}'")
 
 
+def roc_auc_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    indices = np.argsort(y_score)[::-1]
+    y_score = y_score[indices]
+    y_true = y_true[indices]
+
+    pos_i = np.where(y_true == 1)[0]
+    pos_cnt = len(pos_i)
+    neg_cnt = len(y_true) - pos_cnt
+
+    ranks = np.empty(len(y_score))
+    unique_scores, inverse_indices, counts = np.unique(y_score,
+                                                       return_inverse=True,
+                                                       return_counts=True)
+
+    rank = 1.0
+    for i in range(len(unique_scores)):
+        avg_rank = rank + (counts[i] - 1) / 2.0
+        ranks[inverse_indices == i] = avg_rank
+        rank += counts[i]
+
+    return (np.sum(ranks[pos_i]) - pos_cnt *
+            (pos_cnt + 1) / 2.0) / (pos_cnt * neg_cnt)
+
+
+def pr_auc_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    indices = np.argsort(y_score)[::-1]
+    y_true = y_true[indices]
+    y_score = y_score[indices]
+    thresholds = np.unique(y_score)[::-1]
+    tp = fp = 0
+    total_positives = np.sum(y_true == 1)
+
+    if total_positives == 0:
+        return 0.0
+
+    precision_values = [1.0]
+    recall_values = [0.0]
+
+    for threshold in thresholds:
+        pred_positives = y_score >= threshold
+        tp = np.sum(y_true[pred_positives] == 1)
+        fp = np.sum(y_true[pred_positives] == 0)
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+        recall = tp / total_positives
+
+        precision_values.append(precision)
+        recall_values.append(recall)
+
+    tp = total_positives
+    fp = len(y_true) - total_positives
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+    precision_values.append(precision)
+    recall_values.append(1.0)
+    return np.trapezoid(precision_values, recall_values)
+
+
 # %%
 
-pred_bin = cont_to_binary(bag_my_pred)
+pred_bin = bag_my_pred
 scores = pd.DataFrame()
 scores["type"] = [
-    "accuracy_score", "precision_score", "recall_score", "f1_score"
+    "accuracy_score", "precision_score", "recall_score", "f1_score", "roc_auc",
+    "pr_auc"
 ]
+precision, recall, _ = metrics.precision_recall_curve(y_test, pred_bin)
 scores["sklearn"] = [
     metrics.accuracy_score(y_test, pred_bin),
     metrics.precision_score(y_test, pred_bin),
     metrics.recall_score(y_test, pred_bin),
-    metrics.f1_score(y_test, pred_bin)
+    metrics.f1_score(y_test, pred_bin),
+    metrics.roc_auc_score(y_test, pred_bin),
+    metrics.auc(recall, precision),
 ]
-y_test = cast(np.ndarray, y_test)
+y_test = np.array(y_test)
 scores["my"] = [
     accuracy_score(y_test, pred_bin),
     precision_score(y_test, pred_bin),
     recall_score(y_test, pred_bin),
-    f1_score(y_test, pred_bin)
+    f1_score(y_test, pred_bin),
+    roc_auc_score(y_test, pred_bin),
+    pr_auc_score(y_test, pred_bin),
 ]
 scores  # pyright: ignore[reportUnusedExpression]
 
@@ -369,14 +431,14 @@ class MyGradientBoostingClassifier:
 grad_sk = GradientBoostingClassifier(random_state=0)
 grad_sk.fit(X_train, y_train)
 grad_sk_pred = grad_sk.predict(X_test)
-roc_auc_score(y_test, grad_sk_pred)
+metrics.roc_auc_score(y_test, grad_sk_pred)
 
 # %%
 # %%time
 grad_my = MyGradientBoostingClassifier(random_state=0)
 grad_my.fit(X_train, y_train)
 grad_my_pred = grad_my.predict(X_test)
-roc_auc_score(y_test, grad_my_pred)
+metrics.roc_auc_score(y_test, grad_my_pred)
 
 # %% [md]
 # сравнивание реализаций
@@ -397,7 +459,7 @@ for name, model in models:
     pred = model.predict(X_test)
     pred = cont_to_binary(pred)
     comp[name] = [
-        roc_auc_score(y_test, pred),
+        metrics.roc_auc_score(y_test, pred),
         metrics.accuracy_score(y_test, pred),
         metrics.precision_score(y_test, pred),
         metrics.recall_score(y_test, pred),
@@ -450,10 +512,9 @@ pipe_final = pipe
 X_fin_train = pipe_final.fit_transform(X_raw[col_all])
 X_fin_test = pipe_final.transform(X_fin_test)
 
-model = MyBaggingClassifier(estimator=DecisionTreeRegressor(), random_state=0)
+model = lightgbm.LGBMClassifier(**study.best_params)
 model.fit(X_fin_train, y_raw)
-fin_pred = model.predict(X_fin_test)
-fin_pred = cont_to_binary(fin_pred)
+fin_pred = np.array(model.predict(X_fin_test))
 
 fin_out = pd.DataFrame({
     "ID": np.arange(len(fin_pred)),

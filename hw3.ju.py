@@ -40,18 +40,19 @@ Samsung Galaxy S3 (подробнее про признаки – по ссыл�
 выполнили работу и оставить ссылку на ноутбук.
 """  # noqa 501
 
-
 # %%
 from sklearn.svm import LinearSVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV
 from sklearn.decomposition import PCA
-from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering, DBSCAN
 from sklearn import metrics
+from sklearn.manifold import TSNE
+
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from tqdm import tqdm_notebook
+import tqdm.notebook as tqdmnote
 
 # %matplotlib inline
 from matplotlib import pyplot as plt
@@ -60,21 +61,20 @@ plt.style.use(['seaborn-v0_8-darkgrid'])
 plt.rcParams['figure.figsize'] = (12, 9)
 plt.rcParams['font.family'] = 'DejaVu Sans'
 
-
 RANDOM_STATE = 17
 
 # %%
 X_train = np.loadtxt("./datasets/UCI HAR Dataset/train/X_train.txt")
-y_train = np.loadtxt(
-    "./datasets/UCI HAR Dataset/train/y_train.txt").astype(int)
+y_train = np.loadtxt("./datasets/UCI HAR Dataset/train/y_train.txt").astype(
+    int)
 
 X_test = np.loadtxt("./datasets/UCI HAR Dataset/test/X_test.txt")
 y_test = np.loadtxt("./datasets/UCI HAR Dataset/test/y_test.txt").astype(int)
 
 # %%
 # Проверим размерности
-assert (X_train.shape == (7352, 561) and y_train.shape == (7352,))
-assert (X_test.shape == (2947, 561) and y_test.shape == (2947,))
+assert (X_train.shape == (7352, 561) and y_train.shape == (7352, ))
+assert (X_test.shape == (2947, 561) and y_test.shape == (2947, ))
 
 # %% [md]
 """
@@ -115,7 +115,6 @@ n_classes = np.unique(y).size
 Отмасштабируйте выборку с помощью `StandardScaler` с
 параметрами по умолчанию.
 """
-
 
 # %%
 scaler = StandardScaler()
@@ -160,7 +159,6 @@ print(X_pca.shape[1])
 - 61
 """
 
-
 # %%
 print(int(round(pca.explained_variance_ratio_[0], 2) * 100))
 
@@ -171,16 +169,14 @@ print(int(round(pca.explained_variance_ratio_[0], 2) * 100))
 
 # %%
 num_to_activity = {
-    1:  "ходьбе",
-    2:  "подъему вверх по лестнице",
-    3:  "спуску по лестнице",
-    4:  "сидению",
-    5:  "стоянию",
-    6:  "лежанию"
+    1: "ходьбе",
+    2: "подъему вверх по лестнице",
+    3: "спуску по лестнице",
+    4: "сидению",
+    5: "стоянию",
+    6: "лежанию"
 }
-scatter = plt.scatter(
-    X_pca[:, 0],
-    X_pca[:, 1], c=y, s=20, cmap='viridis')
+scatter = plt.scatter(X_pca[:, 0], X_pca[:, 1], c=y, s=20, cmap='viridis')
 lines, vals = scatter.legend_elements()
 labels = [num_to_activity[int(v[-3])] for v in vals]
 plt.legend(lines, labels)
@@ -218,8 +214,12 @@ plt.show()
 
 # %%
 class MyKMeans:
-    def __init__(self, n_clusters: int, n_init: int = 100,
-                 max_iter: int = 300, tol=1e-4,
+
+    def __init__(self,
+                 n_clusters: int,
+                 n_init: int = 100,
+                 max_iter: int = 300,
+                 tol=1e-4,
                  random_state: int | None = None):
         self.random_state = random_state
         self.n_clusters = n_clusters
@@ -227,57 +227,31 @@ class MyKMeans:
         self.tol = tol
         self.n_init = n_init
 
-    def _initialize_centroids(self, X: np.ndarray) -> np.ndarray:
-        np.random.seed(self.random_state)
-        n_samples = X.shape[0]
-        random_indices = np.random.choice(
-            n_samples, self.n_clusters, replace=False)
-        return X[random_indices]
+    def fit(self, X: np.ndarray):
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+        self.inertia_ = 1e10
+        for _ in range(self.n_init):
+            centers = X[np.random.choice(X.shape[0],
+                                         self.n_clusters,
+                                         replace=False)]
+            for _ in range(self.max_iter):
+                dist = np.sqrt(((X - centers[:, np.newaxis])**2).sum(axis=2))
+                labels = np.argmin(dist, axis=0)
+                centers_upd = np.array([
+                    X[labels == i].mean(axis=0) if np.sum(
+                        labels == i) > 0 else centers[i]
+                    for i in range(self.n_clusters)
+                ])
+                if np.allclose(centers, centers_upd):
+                    break
+                centers = centers_upd
 
-    def _assign_clusters(self, X: np.ndarray) -> np.ndarray:
-        distances = np.zeros((X.shape[0], self.n_clusters))
-
-        for i, centroid in enumerate(self.centroids):
-            distances[:, i] = np.linalg.norm(X - centroid, axis=1)
-
-        # Assign each point to the nearest centroid
-        return np.argmin(distances, axis=1)
-
-    def _update_centroids(self, X: np.ndarray, labels):
-        new_centroids = np.zeros((self.n_clusters, X.shape[1]))
-
-        for i in range(self.n_clusters):
-            cluster_points = X[labels == i]
-            if len(cluster_points) > 0:
-                new_centroids[i] = cluster_points.mean(axis=0)
-            else:
-                new_centroids[i] = X[np.random.randint(0, X.shape[0])]
-
-        return new_centroids
-
-    def _calculate_inertia(self, X: np.ndarray, labels) -> float:
-        inertia = 0
-        for i in range(self.n_clusters):
-            cluster_points = X[labels == i]
-            if len(cluster_points) > 0:
-                inertia += np.sum(np.linalg.norm(cluster_points -
-                                  self.centroids[i], axis=1) ** 2)
-        return inertia
-
-    def fit(self, X):
-        X = np.array(X)
-
-        self.centroids = self._initialize_centroids(X)
-
-        for iteration in range(self.max_iter):
-            old_centroids = self.centroids.copy()
-            self.labels = self._assign_clusters(X)
-            self.centroids = self._update_centroids(X, self.labels)
-            self.inertia_ = self._calculate_inertia(X, self.labels)
-            centroid_shift = np.linalg.norm(self.centroids - old_centroids)
-            if centroid_shift < self.tol:
-                break
-        return self
+            inertia = np.sum((X - centers[labels])**2)
+            if inertia < self.inertia_:
+                self.inertia_ = inertia
+                self.labels_ = labels
+                self.cluster_centers_ = centers
 
 
 kmeans_sk = KMeans(
@@ -292,10 +266,10 @@ kmeans_my = MyKMeans(
     random_state=RANDOM_STATE)
 kmeans_my.fit(X_pca)
 
-cluster_labels = kmeans_sk.labels_
 print(np.bincount(kmeans_sk.labels_))
-print(np.bincount(kmeans_my.labels))
+print(np.bincount(kmeans_my.labels_))
 
+cluster_labels = kmeans_sk.labels_
 
 # %% [md]
 """
@@ -303,22 +277,21 @@ print(np.bincount(kmeans_my.labels))
 """  # noqa 501
 
 # %%
-scatter = plt.scatter(
-    X_pca[:, 0],
-    X_pca[:, 1], c=kmeans_sk.labels_, s=20, cmap='viridis')
-lines, vals = scatter.legend_elements()
-labels = [num_to_activity[int(v[-3]) + 1] for v in vals]
-plt.legend(lines, labels)
+scatter = plt.scatter(X_pca[:, 0],
+                      X_pca[:, 1],
+                      c=kmeans_sk.labels_,
+                      s=20,
+                      cmap='viridis')
+plt.legend(*scatter.legend_elements())
 plt.show()
 
-scatter = plt.scatter(
-    X_pca[:, 0],
-    X_pca[:, 1], c=kmeans_my.labels, s=20, cmap='viridis')
-lines, vals = scatter.legend_elements()
-labels = [num_to_activity[int(v[-3]) + 1] for v in vals]
-plt.legend(lines, labels)
+scatter = plt.scatter(X_pca[:, 0],
+                      X_pca[:, 1],
+                      c=kmeans_my.labels_,
+                      s=20,
+                      cmap='viridis')
+plt.legend(*scatter.legend_elements())
 plt.show()
-
 
 # %% [md]
 """
@@ -328,8 +301,10 @@ plt.show()
 
 # %%
 tab = pd.crosstab(y, cluster_labels, margins=True)
-tab.index = ['ходьба', 'подъем вверх по лестнице',
-             'спуск по лестнице', 'сидение', 'стояние', 'лежание', 'все']
+tab.index = [
+    'ходьба', 'подъем вверх по лестнице', 'спуск по лестнице', 'сидение',
+    'стояние', 'лежание', 'все'
+]
 tab.columns = ['cluster' + str(i + 1) for i in range(6)] + ['все']
 tab
 
@@ -366,8 +341,12 @@ tab
 # %%
 # Ваш код здесь
 inertia = []
-for k in tqdm_notebook(range(1, n_classes + 1)):
-    pass
+for k in tqdmnote.tqdm(range(1, n_classes + 1)):
+    kmeans = KMeans(n_clusters=k, n_init=100, random_state=RANDOM_STATE)
+    kmeans.fit(X_pca)
+    inertia.append(kmeans.inertia_)
+
+plt.plot(np.arange(len(inertia)) + 1, inertia)
 
 # %% [md]
 """
@@ -377,7 +356,7 @@ for k in tqdm_notebook(range(1, n_classes + 1)):
 
 **Ответ:**
 - 1
-- 2
+- **2**
 - 3
 - 4
 """
@@ -389,8 +368,7 @@ for k in tqdm_notebook(range(1, n_classes + 1)):
 """
 
 # %%
-ag = AgglomerativeClustering(n_clusters=n_classes,
-                             linkage='ward').fit(X_pca)
+ag = AgglomerativeClustering(n_clusters=n_classes, linkage='ward').fit(X_pca)
 
 # %% [md]
 """
@@ -402,6 +380,8 @@ ag = AgglomerativeClustering(n_clusters=n_classes,
 
 # %%
 # Ваш код здесь
+print(f"clusters: {metrics.adjusted_rand_score(y, ag.labels_)}")
+print(f"kmeans: {metrics.adjusted_rand_score(y, cluster_labels)}")
 
 # %% [md]
 """
@@ -410,105 +390,148 @@ ag = AgglomerativeClustering(n_clusters=n_classes,
 Отметьте все верные утверждения.<br>
 
 **Варианты:**
-- Согласно ARI, KMeans справился с кластеризацией хуже, чем Agglomerative Clustering
-- Для ARI не имеет значения какие именно метки присвоены кластерам, имеет значение только разбиение объектов на кластеры
-- В случае случайного разбиения на кластеры ARI будет близок к нулю
+- **Согласно ARI, KMeans справился с кластеризацией хуже, чем Agglomerative Clustering**
+- **Для ARI не имеет значения какие именно метки присвоены кластерам, имеет значение только разбиение объектов на кластеры**
+- **В случае случайного разбиения на кластеры ARI будет близок к нулю**
 """
 
 # %% [md]
-# -------------------------------
+"""
+Можно заметить, что задача не очень хорошо решается именно как задача кластеризации, если выделять несколько кластеров (> 2). Давайте теперь решим задачу классификации, вспомнив, что данные у нас размечены.
 
-# %% [md]
-# Можно заметить, что задача не очень хорошо решается именно как задача кластеризации, если выделять несколько кластеров (> 2). Давайте теперь решим задачу классификации, вспомнив, что данные у нас размечены.
+Для классификации используйте метод опорных векторов – класс `sklearn.svm.LinearSVC`. Мы в курсе отдельно не рассматривали этот алгоритм, но он очень известен, почитать про него можно, например, в материалах Евгения Соколова –  [тут](https://github.com/esokolov/ml-course-msu/blob/master/ML16/lecture-notes/Sem11_linear.pdf).
 
-# Для классификации используйте метод опорных векторов – класс `sklearn.svm.LinearSVC`. Мы в курсе отдельно не рассматривали этот алгоритм, но он очень известен, почитать про него можно, например, в материалах Евгения Соколова –  [тут](https://github.com/esokolov/ml-course-msu/blob/master/ML16/lecture-notes/Sem11_linear.pdf).
+Настройте для `LinearSVC` гиперпараметр `C` с помощью `GridSearchCV`.
 
-# Настройте для `LinearSVC` гиперпараметр `C` с помощью `GridSearchCV`.
-
-# - Обучите новый `StandardScaler` на обучающей выборке (со всеми исходными признаками), прмиените масштабирование к тестовой выборке
-# - В `GridSearchCV` укажите  cv=3.
+- Обучите новый `StandardScaler` на обучающей выборке (со всеми исходными признаками), прмиените масштабирование к тестовой выборке
+- В `GridSearchCV` укажите  cv=3.
+"""  # noqa 501
 
 # %%
-# Ваш код здесь
-#
-X_train_scaled = None
-X_test_scaled = None
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
 # %%
 svc = LinearSVC(random_state=RANDOM_STATE)
 svc_params = {'C': [0.001, 0.01, 0.1, 1, 10]}
 
 # %%
-# Ваш код здесь
-best_svc = svc
+best_svc = GridSearchCV(svc, svc_params, cv=3)
+best_svc.fit(X_train_scaled, y_train)
+metrics.accuracy_score(y_test, best_svc.predict(X_test_scaled))
 
 # %%
-# Ваш код здесь
-pass
+best_svc.best_params_
 
 # %% [md]
-# **Вопрос 7** (0.5 баллов)
+"""
+**Вопрос 7** (0.5 баллов)
 
-# Какое значение гиперпараметра `C` было выбрано лучшим по итогам кросс-валидации?<br>
+Какое значение гиперпараметра `C` было выбрано лучшим по итогам кросс-валидации?<br>
 
-# **Ответ:**
-# - 0.001
-# - 0.01
-# - 0.1
-# - 1
-# - 10
+**Ответ:**
+- 0.001
+- 0.01
+- **0.1**
+- 1
+- 10
+"""
 
 # %%
 y_predicted = best_svc.predict(X_test_scaled)
-
-# %%
 tab = pd.crosstab(y_test, y_predicted, margins=True)
-tab.index = ['ходьба', 'подъем вверх по лестнице', 'спуск по лестнице',
-             'сидение', 'стояние', 'лежание', 'все']
+tab.index = [
+    'ходьба', 'подъем вверх по лестнице', 'спуск по лестнице', 'сидение',
+    'стояние', 'лежание', 'все'
+]
 tab.columns = tab.index
 tab
 
 # %% [md]
-# **Вопрос 8:** (0.5 балл)
+"""
+**Вопрос 8:** (0.5 балл)
 
-# Какой вид активности SVM определяет хуже всего в терминах точности? Полноты? <br>
+Какой вид активности SVM определяет хуже всего в терминах точности? Полноты? <br>
 
-# **Ответ:**
-# - по точности – подъем вверх по лестнице, по полноте – лежание
-# - по точности – лежание, по полноте – сидение
-# - по точности – ходьба, по полноте – ходьба
-# - по точности – сидение, по полноте – стояние
-
-# %% [md]
-# Наконец, проделайте то же самое, что в 7 вопросе, только добавив PCA.
-
-# - Используйте выборки `X_train_scaled` и `X_test_scaled`
-# - Обучите тот же PCA, что раньше, на отмасшабированной обучающей выборке, примените преобразование к тестовой
-# - Настройте гиперпараметр `C` на кросс-валидации по обучающей выборке с PCA-преобразованием. Вы заметите, насколько это проходит быстрее, чем раньше.
-
-# **Вопрос 9:** (1 балл)
-
-# Какова разность между лучшим качеством (долей верных ответов) на кросс-валидации в случае всех 561 исходных признаков и во втором случае, когда применялся метод главных компонент? Округлите до целых процентов.<br>
-
-# **Варианты:**
-# - Качество одинаковое
-# - 2%
-# - 4%
-# - 10%
-# - 20%
-
+**Ответ:**
+- по точности – подъем вверх по лестнице, по полноте – лежание
+- по точности – лежание, по полноте – сидение
+- по точности – ходьба, по полноте – ходьба
+- **по точности – сидение, по полноте – стояние**
+"""
 
 # %% [md]
-# **Вопрос 10:** (1 балл)
+""" 
+Наконец, проделайте то же самое, что в 7 вопросе, только добавив PCA.
 
-# Выберите все верные утверждения:
+- Используйте выборки `X_train_scaled` и `X_test_scaled`
+- Обучите тот же PCA, что раньше, на отмасшабированной обучающей выборке, примените преобразование к тестовой
+- Настройте гиперпараметр `C` на кросс-валидации по обучающей выборке с PCA-преобразованием. Вы заметите, насколько это проходит быстрее, чем раньше.
+"""
 
-# **Варианты:**
-# - Метод главных компонент в данном случае позволил уменьшить время обучения модели, при этом качество (доля верных ответов на кросс-валидации) очень пострадало, более чем на 10%
-# - PCA можно использовать для визуализации данных, однако для этой задачи есть и лучше подходящие методы, например, tSNE. Зато PCA имеет меньшую вычислительную сложность
-# - PCA строит линейные комбинации исходных признаков, и в некоторых задачах они могут плохо интерпретироваться человеком
+# %%
+pca2 = PCA(n_components=0.9, random_state=RANDOM_STATE)
+X_train_pca = pca2.fit_transform(X_train_scaled)
+X_test_pca = pca2.transform(X_test_scaled)
+svc_pca = LinearSVC(random_state=RANDOM_STATE)
+svc_params_pca = {'C': [0.001, 0.01, 0.1, 1, 10]}
+
+best_svc_pca = GridSearchCV(svc_pca, svc_params_pca, cv=3)
+best_svc_pca.fit(X_train_pca, y_train)
+metrics.accuracy_score(y_test, best_svc_pca.predict(X_test_pca))
+
+# %%
+abs(best_svc_pca.best_score_ - best_svc.best_score_) * 100
 
 # %% [md]
-# **Задание 2.** (1 балл)
+"""
+**Вопрос 9:** (1 балл)
 
-# Попробуйте использовать DBSCAN в качестве алгоритма кластеризации и метод понижения размерности tSNE.
+Какова разность между лучшим качеством (долей верных ответов) на кросс-валидации в случае всех 561 исходных признаков и во втором случае, когда применялся метод главных компонент? Округлите до целых процентов.<br>
+
+**Варианты:**
+- Качество одинаковое
+- 2%
+- **4%**
+- 10%
+- 20%
+"""
+
+# %% [md]
+"""
+**Вопрос 10:** (1 балл)
+
+Выберите все верные утверждения:
+
+**Варианты:**
+- Метод главных компонент в данном случае позволил уменьшить время обучения модели, при этом качество (доля верных ответов на кросс-валидации) очень пострадало, более чем на 10%
+- **PCA можно использовать для визуализации данных, однако для этой задачи есть и лучше подходящие методы, например, tSNE. Зато PCA имеет меньшую вычислительную сложность**
+- **PCA строит линейные комбинации исходных признаков, и в некоторых задачах они могут плохо интерпретироваться человеком**
+"""
+
+# %% [md]
+"""
+**Задание 2.** (1 балл)
+
+Попробуйте использовать DBSCAN в качестве алгоритма кластеризации и метод понижения размерности tSNE.
+"""
+
+# %%
+tsne = TSNE(random_state=RANDOM_STATE)
+X_tsne = tsne.fit_transform(X_pca)
+
+# %%
+scatter = plt.scatter(X_tsne[:, 0], X_tsne[:, 1], c=y, s=20, cmap='viridis')
+lines, vals = scatter.legend_elements()
+labels = [num_to_activity[int(v[-3])] for v in vals]
+plt.legend(lines, labels)
+plt.show()
+
+# %%
+dbscan = DBSCAN(eps=1.5)
+labels_db = dbscan.fit_predict(X_tsne)
+
+plt.figure(figsize=(12, 8))
+plt.scatter(X_tsne[:, 0], X_tsne[:, 1], c=labels_db, s=10, cmap='viridis')
+plt.colorbar()
+plt.show()
